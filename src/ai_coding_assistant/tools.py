@@ -9,16 +9,18 @@ from dataclasses import dataclass
 class ReadToolArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
     file_path: str = Field(description=(
-        "The path to the file to read, relative to the project workspace root"
-        "Needs to be a file path, not a directory path"
+        "The path to the file to read, relative to the project workspace root. "
+        "Must be a relative path; absolute paths (e.g. '/etc/passwd') are rejected. "
+        "Needs to be a file path, not a directory path."
     )
 )
 
 class WriteToolArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
     file_path: str = Field(description=(
-        "The path of the file to write to, relative to the project workspace root"
-        "Needs to be a file path, not a directory path"
+        "The path of the file to write to, relative to the project workspace root. "
+        "Must be a relative path; absolute paths (e.g. '/etc/passwd') are rejected. "
+        "Needs to be a file path, not a directory path."
     )
 )
     content: str = Field(description="The content to write to the file")
@@ -36,7 +38,8 @@ class BashToolArgs(BaseModel):
     default=".",
     description=(
         "Working directory in which to execute the command, relative to the "
-        "project workspace root. Use '.' to execute from the workspace root."
+        "project workspace root. Use '.' to execute from the workspace root. "
+        "Must be a relative path; absolute paths are rejected."
     ),
 )
 
@@ -66,6 +69,10 @@ class ReadTool(BaseTool):
         file_path = args.file_path
         try:
             return ToolCallResult(success=True, output=ReadTool.read_file(file_path, workspace))
+        except ValueError as e:
+            return ToolCallResult(success=False, output=str(e))
+        except PermissionError as e:
+            return ToolCallResult(success=False, output=str(e))
         except FileNotFoundError:
             return ToolCallResult(success=False, output="File not found, please use bash tool to locate the file")
         except IsADirectoryError:
@@ -97,6 +104,10 @@ class WriteTool(BaseTool):
         try:
             WriteTool.write_file(file_path, content, workspace)
             return ToolCallResult(success=True, output="Created the file")
+        except ValueError as e:
+            return ToolCallResult(success=False, output=str(e))
+        except PermissionError as e:
+            return ToolCallResult(success=False, output=str(e))
         except IsADirectoryError:
             return ToolCallResult(success=False, output="Trying to write to a file path, please provide a file path, not a directory path")
         except IOError:
@@ -125,9 +136,13 @@ class BashTool(BaseTool):
         try:
             command_exec_res = BashTool.execute_command(command, cwd, workspace)
             return (
-                ToolCallResult(success=True, output=command_exec_res.stdout) if command_exec_res.returncode == 0 
+                ToolCallResult(success=True, output=command_exec_res.stdout) if command_exec_res.returncode == 0
                 else ToolCallResult(success=False, output=command_exec_res.stderr)
             )
+        except ValueError as e:
+            return ToolCallResult(success=False, output=str(e))
+        except PermissionError as e:
+            return ToolCallResult(success=False, output=str(e))
         except FileNotFoundError:
             return ToolCallResult(success=False, output="Path does not exist, please try again with a valid path or create this path first")
         except NotADirectoryError:
@@ -178,6 +193,11 @@ def resolve_safe_path(
     workspace: Path,
     file_path: str,
 ) -> Path:
+    if Path(file_path).is_absolute():
+        raise ValueError(
+            f"Path must be relative to the workspace root, got absolute path: {file_path}"
+        )
+
     workspace = workspace.resolve()
     path = (workspace / file_path).resolve()
 
