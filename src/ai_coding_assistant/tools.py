@@ -82,7 +82,6 @@ class ReadTool(BaseTool):
 
     @staticmethod
     def _read_file(file_path: str, workspace: Path) -> str:
-
         path = resolve_safe_path(workspace, file_path)
         if not path.exists():
             raise FileNotFoundError(file_path)
@@ -108,19 +107,20 @@ class WriteTool(BaseTool):
             return ToolCallResult(success=False, output=str(e))
         except PermissionError as e:
             return ToolCallResult(success=False, output=str(e))
-        except IsADirectoryError:
-            return ToolCallResult(success=False, output="Trying to write to a file path, please provide a file path, not a directory path")
-        except IOError:
+        except FileNotFoundError as e:
+            return ToolCallResult(success=False, output="No such directory, please ensure directories in path exist(file does not need to exist)")
+        except OSError:
             return ToolCallResult(success=False, output="Failure occured while writing to file")
 
     @staticmethod
     def _write_file(file_path: str, content: str, workspace: Path):
-        path = resolve_safe_path(workspace, file_path)
+        """
+        Writes to an existing or new file for a valid path
 
-        if not path.is_file():
-            raise IsADirectoryError(file_path)
-        
-        # create new file or override existing
+        Raises:
+            FileNotFoundError: If the path is invalid due to a directory not existing
+        """
+        path = resolve_safe_path(workspace, file_path)        
         with open(path, "w", encoding="utf-8") as file:
             file.write(content)
 
