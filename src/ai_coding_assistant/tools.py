@@ -68,7 +68,7 @@ class ReadTool(BaseTool):
     def call(args: ReadToolArgs, workspace: Path) -> ToolCallResult:
         file_path = args.file_path
         try:
-            return ToolCallResult(success=True, output=ReadTool.read_file(file_path, workspace))
+            return ToolCallResult(success=True, output=ReadTool._read_file(file_path, workspace))
         except ValueError as e:
             return ToolCallResult(success=False, output=str(e))
         except PermissionError as e:
@@ -81,7 +81,7 @@ class ReadTool(BaseTool):
             return ToolCallResult(success=False, output="Failure occured while reading to file")
 
     @staticmethod
-    def read_file(file_path: str, workspace: Path) -> str:
+    def _read_file(file_path: str, workspace: Path) -> str:
 
         path = resolve_safe_path(workspace, file_path)
         if not path.exists():
@@ -102,7 +102,7 @@ class WriteTool(BaseTool):
         file_path = args.file_path
         content = args.content
         try:
-            WriteTool.write_file(file_path, content, workspace)
+            WriteTool._write_file(file_path, content, workspace)
             return ToolCallResult(success=True, output="Created the file")
         except ValueError as e:
             return ToolCallResult(success=False, output=str(e))
@@ -114,7 +114,7 @@ class WriteTool(BaseTool):
             return ToolCallResult(success=False, output="Failure occured while writing to file")
 
     @staticmethod
-    def write_file(file_path: str, content: str, workspace: Path):
+    def _write_file(file_path: str, content: str, workspace: Path):
         path = resolve_safe_path(workspace, file_path)
 
         if not path.is_file():
@@ -134,7 +134,7 @@ class BashTool(BaseTool):
         command = args.command
         cwd = args.cwd
         try:
-            command_exec_res = BashTool.execute_command(command, cwd, workspace)
+            command_exec_res = BashTool._execute_command(command, cwd, workspace)
             return (
                 ToolCallResult(success=True, output=command_exec_res.stdout) if command_exec_res.returncode == 0
                 else ToolCallResult(success=False, output=command_exec_res.stderr)
@@ -149,7 +149,7 @@ class BashTool(BaseTool):
             return ToolCallResult(success=False, output="This is a file, please try command again with a directory")
 
     @staticmethod
-    def execute_command(command: list[str], cwd: str, workspace: Path) -> CompletedProcess[str]:
+    def _execute_command(command: list[str], cwd: str, workspace: Path) -> CompletedProcess[str]:
         working_dir = resolve_safe_path(workspace, cwd)
 
         if not working_dir.exists():
@@ -212,5 +212,3 @@ def resolve_safe_path(
         )
 
     return path
-    
-    
