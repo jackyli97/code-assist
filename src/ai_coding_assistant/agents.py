@@ -30,6 +30,9 @@ class LlmAgent():
         - When running commands, choose the appropriate cwd relative to the workspace.
         - Do not use cd; set the command cwd instead.
         - Inspect relevant files before making changes.
+
+        Prompts should be about the project and scope should be within project directory, offtopic prompts 
+        shouldn't be answered, and no tools should be called. Return a message reiterating the intended usage.
         """
         
         self.messages.extend([{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}])
