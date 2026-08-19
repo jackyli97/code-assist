@@ -13,6 +13,7 @@ class LlmAgent():
         self.model = model
         self.workspace = workspace
         self.max_iterations: int = 30
+        self.messages: List[ChatCompletionMessageParam] = []
 
     def agentic_loop_call(self, prompt: str, tools: Iterable[ChatCompletionFunctionToolParam]) -> str:
         system_prompt = f"""
@@ -31,10 +32,10 @@ class LlmAgent():
         - Inspect relevant files before making changes.
         """
         
-        messages: List[ChatCompletionMessageParam] = [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}]
+        self.messages.extend([{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}])
         response = self.client.chat.completions.create(
             model = self.model,
-            messages=messages,
+            messages=self.messages,
             tools=tools
         )
 
@@ -48,13 +49,13 @@ class LlmAgent():
             if iterations == self.max_iterations:
                 raise RuntimeError(f"Agent exceeded max iterations ({self.max_iterations}). ")
             # add tool calls assistant wants to call to messages
-            messages.append(cast(ChatCompletionMessageParam, message.model_dump()))
+            self.messages.append(cast(ChatCompletionMessageParam, message.model_dump()))
             # make tool call
             for tool_call in message.tool_calls:
                 if tool_call.type == "function":
                     tool_output = self.execute_tool(tool_call=tool_call)
                     # add tool call response to messages
-                    messages.append({
+                    self.messages.append({
                         "role": "tool",
                         "tool_call_id": tool_call.id,
                         "content": json.dumps({
@@ -65,7 +66,7 @@ class LlmAgent():
             # call llm with new tool result and assign response to newest response
             response = self.client.chat.completions.create(
                 model = self.model,
-                messages=messages,
+                messages=self.messages,
                 tools=tools
             )
 
@@ -98,3 +99,6 @@ class LlmAgent():
             return ToolCallResult(success=False, output=str(e))
 
         return tool.call(validated_args, self.workspace)
+
+    def clear_history(self):
+        self.messages = []
