@@ -12,8 +12,9 @@ class LlmAgent():
         self.client = client
         self.model = model
         self.workspace = workspace
+        self.max_iterations: int = 30
 
-    def agentic_loop_call(self, prompt: str, tools: Iterable[ChatCompletionFunctionToolParam]):
+    def agentic_loop_call(self, prompt: str, tools: Iterable[ChatCompletionFunctionToolParam]) -> str:
         system_prompt = f"""
         You are an AI coding assistant operating on a local project.
 
@@ -41,8 +42,11 @@ class LlmAgent():
             raise RuntimeError("no choices in response")
 
         message = response.choices[0].message
+        iterations: int = 0
 
         while message.tool_calls:
+            if iterations == self.max_iterations:
+                raise RuntimeError(f"Agent exceeded max iterations ({self.max_iterations}). ")
             # add tool calls assistant wants to call to messages
             messages.append(cast(ChatCompletionMessageParam, message.model_dump()))
             # make tool call
@@ -69,13 +73,23 @@ class LlmAgent():
                 raise RuntimeError("no choices in response")
             message = response.choices[0].message
 
-        print(message.content)
+            iterations += 1
+
+        if message.content:
+            return message.content
+
+        raise RuntimeError("LLM returned no content and no tool calls")
 
     def execute_tool(self, tool_call: ChatCompletionMessageFunctionToolCall) -> ToolCallResult:
         function_name = tool_call.function.name
         function_arguments = tool_call.function.arguments
 
         # validate the args provided by LLM against the args defined for tool
+        if function_name not in TOOL_REGISTRY:
+            return ToolCallResult(
+                success=False,
+                output=f"Unknown tool: {function_name!r}. Available tools: {sorted(TOOL_REGISTRY)}",
+            )
         tool = TOOL_REGISTRY[function_name]
         tool_arg_model = tool.args_model
         try:
