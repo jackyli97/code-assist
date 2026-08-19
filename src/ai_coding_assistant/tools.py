@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from typing import Dict, Type
 from pydantic import BaseModel, Field, ConfigDict
 import subprocess
-from subprocess import CompletedProcess
+from subprocess import CompletedProcess, CalledProcessError
 from pathlib import Path
 from dataclasses import dataclass
 
@@ -147,6 +147,8 @@ class BashTool(BaseTool):
             return ToolCallResult(success=False, output="Path does not exist, please try again with a valid path or create this path first")
         except NotADirectoryError:
             return ToolCallResult(success=False, output="This is a file, please try command again with a directory")
+        except CalledProcessError:
+            return ToolCallResult(success=False, output="Failure occured while running process")
 
     @staticmethod
     def _execute_command(command: list[str], cwd: str, workspace: Path) -> CompletedProcess[str]:
@@ -177,17 +179,40 @@ TOOL_REGISTRY: Dict[str, Type[BaseTool]] = {
     "Bash": BashTool
 }
 
-SENSITIVE_PATTERNS = {
-    ".env",
-    ".ssh",
-}
+SENSITIVE_FILENAMES: frozenset[str] = frozenset({".env"})
+SENSITIVE_FILENAME_PREFIXES: tuple[str, ...] = (".env.",)
+SENSITIVE_DIR_NAMES: frozenset[str] = frozenset({".ssh"})
+
+
+def is_sensitive_path(path_str: str) -> bool:
+    """True if ``path_str`` references a sensitive filesystem location.
+
+    Single source of truth for what counts as sensitive. Used by both
+    ``resolve_safe_path`` (file access) and ``validate_command`` (bash args)
+    so the two check-sites can't drift apart.
+
+    Blocks:
+      - Files named exactly ``.env``
+      - Files named ``.env.<anything>`` (``.env.local``, ``.env.production``)
+      - Any path containing ``.ssh`` as a directory component
+    """
+    p = Path(path_str)
+    if p.name in SENSITIVE_FILENAMES:
+        return True
+    if p.name.startswith(SENSITIVE_FILENAME_PREFIXES):
+        return True
+    if SENSITIVE_DIR_NAMES.intersection(p.parts):
+        return True
+    return False
+
 
 def validate_command(command: list[str]) -> None:
     for arg in command:
-        if any(pattern in arg for pattern in SENSITIVE_PATTERNS):
+        if is_sensitive_path(arg):
             raise PermissionError(
                 f"Command references a sensitive path: {arg}"
             )
+
 
 def resolve_safe_path(
     workspace: Path,
@@ -206,9 +231,9 @@ def resolve_safe_path(
             f"Path is outside workspace: {file_path}"
         )
 
-    if path.name == ".env" or path.name.startswith(".env."):
+    if is_sensitive_path(str(path)):
         raise PermissionError(
-            f"Access to sensitive file is not allowed: {path.name}"
+            f"Access to sensitive path is not allowed: {path.name}"
         )
 
     return path
