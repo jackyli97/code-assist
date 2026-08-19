@@ -5,7 +5,32 @@ import subprocess
 from subprocess import CompletedProcess, CalledProcessError
 from pathlib import Path
 from dataclasses import dataclass
+from openai.types.chat import ChatCompletionFunctionToolParam
+from openai import pydantic_function_tool
 
+# ---------------------------------------------------------------------------
+# Shared Types
+# ---------------------------------------------------------------------------
+@dataclass
+class ToolCallResult():
+    success: bool
+    output: str
+
+class BaseTool(ABC):
+    name: str
+    args_model: Type[BaseModel]
+    description: str
+
+    @staticmethod
+    @abstractmethod
+    def call(args: BaseModel, workspace: Path) -> ToolCallResult:
+        # call the tool function
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Tool Argument Models
+# ---------------------------------------------------------------------------
 class ReadToolArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
     file_path: str = Field(description=(
@@ -14,7 +39,6 @@ class ReadToolArgs(BaseModel):
         "Needs to be a file path, not a directory path."
     )
 )
-
 class WriteToolArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
     file_path: str = Field(description=(
@@ -43,22 +67,9 @@ class BashToolArgs(BaseModel):
     ),
 )
 
-@dataclass
-class ToolCallResult():
-    success: bool
-    output: str
-
-class BaseTool(ABC):
-    name: str
-    args_model: Type[BaseModel]
-    description: str
-
-    @staticmethod
-    @abstractmethod
-    def call(args: BaseModel, workspace: Path) -> ToolCallResult:
-        # call the tool function
-        pass
-
+# ---------------------------------------------------------------------------
+# Tool Implementations
+# ---------------------------------------------------------------------------
 class ReadTool(BaseTool):
     name = "Read"
     args_model = ReadToolArgs
@@ -173,11 +184,9 @@ class BashTool(BaseTool):
 
         return result
 
-TOOL_REGISTRY: Dict[str, Type[BaseTool]] = {
-    "Read": ReadTool,
-    "Write": WriteTool,
-    "Bash": BashTool
-}
+# ---------------------------------------------------------------------------
+# Safety/path helpers
+# ---------------------------------------------------------------------------
 
 SENSITIVE_FILENAMES: frozenset[str] = frozenset({".env"})
 SENSITIVE_FILENAME_PREFIXES: tuple[str, ...] = (".env.",)
@@ -237,3 +246,32 @@ def resolve_safe_path(
         )
 
     return path
+
+# ---------------------------------------------------------------------------
+# Registry
+# ---------------------------------------------------------------------------
+
+TOOL_REGISTRY: Dict[str, Type[BaseTool]] = {
+    "Read": ReadTool,
+    "Write": WriteTool,
+    "Bash": BashTool
+}
+
+def get_tools() -> list[ChatCompletionFunctionToolParam]:
+    return ([
+        pydantic_function_tool(
+        model=ReadTool.args_model,
+        name=ReadTool.name,
+        description=ReadTool.description,
+    ),
+    pydantic_function_tool(
+        model=WriteTool.args_model,
+        name=WriteTool.name,
+        description=WriteTool.description,
+    ),
+    pydantic_function_tool(
+        model=BashTool.args_model,
+        name=BashTool.name,
+        description=BashTool.description,
+    )
+    ])
