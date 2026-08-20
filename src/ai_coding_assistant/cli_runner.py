@@ -3,11 +3,8 @@ from openai.types.chat import ChatCompletionFunctionToolParam
 import click
 import math
 
-def run_agent(agent: LlmAgent, tools: list[ChatCompletionFunctionToolParam], prompt: str) -> None:
-    response = agent.agentic_loop_call(
-        prompt=prompt,
-        tools=tools,
-    )
+def run_agent(agent: LlmAgent, prompt: str) -> None:
+    response = agent.agentic_loop_call(prompt=prompt)
     content,run_prompt_tokens,run_completion_tokens = (
         response.content,
         response.run_prompt_tokens, 
@@ -38,7 +35,7 @@ def run_agent(agent: LlmAgent, tools: list[ChatCompletionFunctionToolParam], pro
                 )
             )
 
-def run_interactive(agent: LlmAgent, tools: list[ChatCompletionFunctionToolParam]) -> None:
+def run_interactive(agent: LlmAgent) -> None:
     click.echo(click.style("code-assist v0.1.0", fg="green", bold=True))
     click.echo(click.style(f"Workspace: ", fg="cyan") + str(agent.workspace))
     click.echo(click.style(f"Model: ", fg="white") + click.style(agent.model, fg="yellow"))
@@ -87,7 +84,7 @@ def run_interactive(agent: LlmAgent, tools: list[ChatCompletionFunctionToolParam
                 click.echo()
                 continue
 
-            run_agent(agent=agent, tools=tools, prompt=prompt)
+            run_agent(agent=agent, prompt=prompt)
 
 
         except click.Abort:

@@ -8,8 +8,10 @@ from ai_coding_assistant.config import (
 
 from openai import OpenAI
 from ai_coding_assistant.agents import LlmAgent
+from openai.types.chat import ChatCompletionFunctionToolParam
+from typing import Iterable
 
-def create_agent() -> LlmAgent: 
+def create_agent(tools: Iterable[ChatCompletionFunctionToolParam]) -> LlmAgent: 
     load_config()
 
     api_key = get_api_key()
@@ -25,4 +27,5 @@ def create_agent() -> LlmAgent:
     return LlmAgent(
         client=client,
         workspace=workspace,
+        tools=tools
     )

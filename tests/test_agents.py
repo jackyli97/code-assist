@@ -176,14 +176,14 @@ def mock_max_iterations_call_openai(
 
 
 def test_agentic_loop_call_no_tool_calls(mock_no_tool_call_openai: MagicMock, tmp_path: Path, mocker: MockerFixture):
-    agent = LlmAgent(client=mock_no_tool_call_openai, workspace=tmp_path)
+    agent = LlmAgent(client=mock_no_tool_call_openai, workspace=tmp_path, tools=[MagicMock()]*3)
 
     mock_execute_tool = mocker.patch.object(
         agent, "execute_tool",
         return_value=ToolCallResult(success=True, output="stubbed"),
     )
 
-    agent.agentic_loop_call(prompt="what does this repository do", tools=[MagicMock()]*3)
+    agent.agentic_loop_call(prompt="what does this repository do")
     assert mock_no_tool_call_openai.chat.completions.create.call_count == 1
     assert mock_execute_tool.call_count == 0
 
@@ -193,13 +193,13 @@ def test_agentic_loop_call_single_tool_call(
         mocker: MockerFixture,
         mock_read_tool_call: ChatCompletionMessageToolCall
     ):
-    agent = LlmAgent(client=mock_single_tool_call_openai, workspace=tmp_path)
+    agent = LlmAgent(client=mock_single_tool_call_openai, workspace=tmp_path, tools=[MagicMock()]*3)
     mock_execute_tool = mocker.patch.object(
         agent, "execute_tool",
         return_value=ToolCallResult(success=True, output="stubbed"),
     )
 
-    agent.agentic_loop_call(prompt="what does this repository do", tools=[MagicMock()]*3)
+    agent.agentic_loop_call(prompt="what does this repository do")
 
     assert mock_single_tool_call_openai.chat.completions.create.call_count == 2
     assert mock_execute_tool.call_count == 1
@@ -213,13 +213,13 @@ def test_agentic_loop_call_multi_tool_call(
         mock_read_tool_call: ChatCompletionMessageToolCall,
         mock_bash_tool_call: ChatCompletionMessageToolCall
     ):
-    agent = LlmAgent(client=mock_multi_call_openai, workspace=tmp_path)
+    agent = LlmAgent(client=mock_multi_call_openai, workspace=tmp_path, tools=[MagicMock()]*3)
     mock_execute_tool = mocker.patch.object(
         agent, "execute_tool",
         return_value=ToolCallResult(success=True, output="stubbed"),
     )
 
-    agent.agentic_loop_call(prompt="what does this repository do", tools=[MagicMock()]*3)
+    agent.agentic_loop_call(prompt="what does this repository do")
 
     assert mock_multi_call_openai.chat.completions.create.call_count == 3
     assert mock_execute_tool.call_count == 2
@@ -237,13 +237,13 @@ def test_agentic_loop_call_multi_tools_at_once(
         mock_read_tool_call: ChatCompletionMessageToolCall,
         mock_write_tool_call: ChatCompletionMessageToolCall
     ):
-    agent = LlmAgent(client=mock_multi_tools_in_single_response_openai, workspace=tmp_path)
+    agent = LlmAgent(client=mock_multi_tools_in_single_response_openai, workspace=tmp_path, tools=[MagicMock()]*3)
     mock_execute_tool = mocker.patch.object(
         agent, "execute_tool",
         return_value=ToolCallResult(success=True, output="stubbed"),
     )
 
-    agent.agentic_loop_call(prompt="what does this repository do", tools=[MagicMock()]*3)
+    agent.agentic_loop_call(prompt="what does this repository do")
 
     assert mock_multi_tools_in_single_response_openai.chat.completions.create.call_count == 2
     assert mock_execute_tool.call_count == 2
@@ -258,13 +258,13 @@ def test_agentic_loop_call_max_iterations_reached(
     tmp_path: Path,
     mocker: MockerFixture,
 ):
-    agent = LlmAgent(client=mock_max_iterations_call_openai, workspace=tmp_path)
+    agent = LlmAgent(client=mock_max_iterations_call_openai, workspace=tmp_path, tools=[MagicMock()]*3)
     mock_execute_tool = mocker.patch.object(
         agent, "execute_tool",
         return_value=ToolCallResult(success=True, output="stubbed"),
     )
     with pytest.raises(RuntimeError, match="Agent exceeded max iterations"):
-        agent.agentic_loop_call(prompt="what does this repository do", tools=[MagicMock()]*3)
+        agent.agentic_loop_call(prompt="what does this repository do")
 
     assert mock_max_iterations_call_openai.chat.completions.create.call_count == 11 # don't include initial call as an iteration
     assert mock_execute_tool.call_count == 10
@@ -293,7 +293,7 @@ def test_execute_call_success(
         output="stubbed"
     ))
 
-    agent = LlmAgent(client=client, workspace=tmp_path)
+    agent = LlmAgent(client=client, workspace=tmp_path, tools=[MagicMock()]*3)
 
     result = agent.execute_tool(tool_call)
     assert result.success
@@ -306,7 +306,7 @@ def test_execute_call_fails_invalid_tool(tmp_path: Path):
     )
     client = MagicMock()
 
-    agent = LlmAgent(client=client, workspace=tmp_path)
+    agent = LlmAgent(client=client, workspace=tmp_path, tools=[MagicMock()]*3)
 
     result = agent.execute_tool(invalid_tool_call)
 
@@ -319,7 +319,7 @@ def test_execute_call_fails_model_validate_json(
 ):
     client = MagicMock()
     
-    agent = LlmAgent(client=client, workspace=tmp_path)
+    agent = LlmAgent(client=client, workspace=tmp_path, tools=[MagicMock()]*3)
 
     mock_read_tool_call.function.arguments = '{"file_paths": "something"}' #typo
 
@@ -338,7 +338,7 @@ def test_token_usage(
     tmp_path: Path,
     mocker: MockerFixture,
 ):
-    agent = LlmAgent(client=mock_multi_call_openai, workspace=tmp_path)
+    agent = LlmAgent(client=mock_multi_call_openai, workspace=tmp_path, tools=[MagicMock()]*3)
     mocker.patch.object(
         agent, "execute_tool",
         return_value=ToolCallResult(success=True, output="stubbed"),
@@ -351,7 +351,7 @@ def test_token_usage(
         r.usage.completion_tokens for r in mock_multi_call_openai.mock_responses if r.usage
     )
 
-    result = agent.agentic_loop_call(prompt="what does this repository do", tools=[MagicMock()]*3)
+    result = agent.agentic_loop_call(prompt="what does this repository do")
 
     assert result.run_prompt_tokens == expected_prompt_tokens
     assert result.run_completion_tokens == expected_completion_tokens
@@ -360,7 +360,7 @@ def test_token_usage(
 
     # second run on the same agent: reset the side effect using saved mock responses
     mock_multi_call_openai.chat.completions.create.side_effect = mock_multi_call_openai.mock_responses
-    result_2 = agent.agentic_loop_call(prompt="what does this repository do", tools=[MagicMock()]*3)
+    result_2 = agent.agentic_loop_call(prompt="what does this repository do")
 
     assert result_2.run_prompt_tokens == expected_prompt_tokens
     assert result_2.run_completion_tokens == expected_completion_tokens
@@ -379,11 +379,11 @@ def test_agentic_loop_call_updates_context_from_zero(
     mock_no_tool_call_openai: MagicMock,
     tmp_path: Path,
 ) -> None:
-    agent = LlmAgent(client=mock_no_tool_call_openai, workspace=tmp_path)
+    agent = LlmAgent(client=mock_no_tool_call_openai, workspace=tmp_path, tools=[MagicMock()]*3)
 
     assert agent.context == 0
 
-    agent.agentic_loop_call(prompt="hello", tools=[])
+    agent.agentic_loop_call(prompt="hello")
 
     assert agent.context > 0
 
@@ -396,19 +396,19 @@ def test_agentic_loop_call_context_grows_across_runs(
 ) -> None:
     # agent.messages persists across loop calls, so a second run should
     # produce a strictly larger context estimate than the first.
-    agent = LlmAgent(client=mock_multi_call_openai, workspace=tmp_path)
+    agent = LlmAgent(client=mock_multi_call_openai, workspace=tmp_path, tools=[MagicMock()]*3)
     mocker.patch.object(
         agent, "execute_tool",
         return_value=ToolCallResult(success=True, output="stubbed"),
     )
 
-    agent.agentic_loop_call(prompt="first prompt", tools=[])
+    agent.agentic_loop_call(prompt="first prompt")
     first_context = agent.context
 
     mock_multi_call_openai.chat.completions.create.side_effect = (
         mock_multi_call_openai.mock_responses
     )
-    agent.agentic_loop_call(prompt="second prompt", tools=[])
+    agent.agentic_loop_call(prompt="second prompt")
     second_context = agent.context
 
     assert first_context > 0
@@ -424,11 +424,11 @@ def test_agentic_loop_call_context_matches_direct_estimation(
     # to estimate_context_tokens on the same messages/tools — proves the
     # update path in _update_agent_usages is wired to the same estimator.
     tools: list = []
-    agent = LlmAgent(client=mock_no_tool_call_openai, workspace=tmp_path)
+    agent = LlmAgent(client=mock_no_tool_call_openai, workspace=tmp_path, tools=[MagicMock()]*3)
 
-    agent.agentic_loop_call(prompt="hello", tools=tools)
+    agent.agentic_loop_call(prompt="hello")
 
-    assert agent.context == agent.estimate_context_tokens(tools)
+    assert agent.context == agent.estimate_context_tokens()
 
 
 # ---------------------------------------------------------------------------
@@ -441,9 +441,9 @@ def test_estimate_context_tokens_empty_state_is_small_but_nonzero(
 ) -> None:
     # With no messages and no tools we're just encoding "[]" + "[]".
     # Should be a small positive integer, not zero.
-    agent = LlmAgent(client=MagicMock(), workspace=tmp_path)
+    agent = LlmAgent(client=MagicMock(), workspace=tmp_path, tools=[])
 
-    tokens = agent.estimate_context_tokens(tools=[])
+    tokens = agent.estimate_context_tokens()
 
     assert tokens > 0
     assert tokens < 10  # empty JSON arrays should be a handful of tokens
@@ -452,15 +452,15 @@ def test_estimate_context_tokens_empty_state_is_small_but_nonzero(
 def test_estimate_context_tokens_grows_with_more_messages(
     stub_context_limit: None, tmp_path: Path,
 ) -> None:
-    agent = LlmAgent(client=MagicMock(), workspace=tmp_path)
+    agent = LlmAgent(client=MagicMock(), workspace=tmp_path, tools=[MagicMock()]*3)
 
     agent.messages = [{"role": "user", "content": "hi"}]
-    small = agent.estimate_context_tokens(tools=[])
+    small = agent.estimate_context_tokens()
 
     agent.messages.append(
         {"role": "assistant", "content": "a much longer response " * 100}
     )
-    big = agent.estimate_context_tokens(tools=[])
+    big = agent.estimate_context_tokens()
 
     assert big > small
 
@@ -468,20 +468,9 @@ def test_estimate_context_tokens_grows_with_more_messages(
 def test_estimate_context_tokens_grows_with_tools(
     stub_context_limit: None, tmp_path: Path,
 ) -> None:
-    agent = LlmAgent(client=MagicMock(), workspace=tmp_path)
-
-    without = agent.estimate_context_tokens(tools=[])
-    with_tools = agent.estimate_context_tokens(
-        tools=[
-            {
-                "type": "function",
-                "function": {
-                    "name": "Read",
-                    "description": "read a file from the workspace",
-                    "parameters": {"type": "object", "properties": {}},
-                },
-            }
-        ]
-    )
+    agent_without_tools = LlmAgent(client=MagicMock(), workspace=tmp_path, tools=[])
+    agent_with_tools = LlmAgent(client=MagicMock(), workspace=tmp_path, tools=[MagicMock()]*3)
+    without = agent_without_tools.estimate_context_tokens()
+    with_tools = agent_with_tools.estimate_context_tokens()
 
     assert with_tools > without

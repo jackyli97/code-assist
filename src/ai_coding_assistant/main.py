@@ -31,13 +31,13 @@ def main(ctx: click.Context, prompt: str | None) -> None:
     if ctx.invoked_subcommand is not None:
         return
 
-    agent = create_agent()
     tools = get_tools()
+    agent = create_agent(tools)
 
     if prompt: # single shot prompt
-        run_agent(agent=agent, tools=tools, prompt=prompt)
+        run_agent(agent=agent, prompt=prompt)
     else: # just code-assist was entered
-        run_interactive(agent=agent, tools=tools)
+        run_interactive(agent=agent)
 
 
 @main.group()
