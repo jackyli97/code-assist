@@ -30,9 +30,9 @@ class LlmAgent():
         self.context_limit = get_context_limit(model)
         self.context = 0
 
-    def update_model(self, model: str) -> None:
-        self.model = model
-        self.context_limit = get_context_limit(model)
+    # ---------------------------------------------------------------------------
+    # Core agent functions: LLM calling and tool calling
+    # ---------------------------------------------------------------------------
 
     def agentic_loop_call(self, prompt: str) -> AgentResponse:
         system_prompt = f"""
@@ -127,11 +127,6 @@ class LlmAgent():
 
         raise RuntimeError("LLM returned no content and no tool calls")
 
-    def _update_agent_usages(self, run_prompt_tokens: int, run_completion_tokens: int) -> None:
-        self.context = self.estimate_context_tokens()
-        self.session_prompt_tokens += run_prompt_tokens
-        self.session_completion_tokens += run_completion_tokens
-
     def execute_tool(self, tool_call: ChatCompletionMessageFunctionToolCall) -> ToolCallResult:
         function_name = tool_call.function.name
         function_arguments = tool_call.function.arguments
@@ -151,8 +146,25 @@ class LlmAgent():
 
         return tool.call(validated_args, self.workspace)
 
+    # ---------------------------------------------------------------------------
+    # Agent state management
+    # ---------------------------------------------------------------------------
+
     def clear_history(self):
         self.messages = []
+
+    def update_model(self, model: str) -> None:
+        self.model = model
+        self.context_limit = get_context_limit(model)
+
+    # ---------------------------------------------------------------------------
+    # Agent tokens and context management
+    # ---------------------------------------------------------------------------
+
+    def _update_agent_usages(self, run_prompt_tokens: int, run_completion_tokens: int) -> None:
+        self.context = self.estimate_context_tokens()
+        self.session_prompt_tokens += run_prompt_tokens
+        self.session_completion_tokens += run_completion_tokens
 
     def estimate_context_tokens(self) -> int:
         encoding = tiktoken.get_encoding("o200k_base")
