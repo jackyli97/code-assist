@@ -8,6 +8,8 @@ dependencies = [
     "click>=8.4.2",
     "openai>=2.15.0",
     "python-dotenv>=1.0.0",
+    "requests>=2.34.2",
+    "tiktoken>=0.14.0",
 ]
 [project.scripts]
 code-assist = "ai_coding_assistant.main:main"
