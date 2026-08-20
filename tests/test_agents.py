@@ -144,7 +144,7 @@ def mock_max_iterations_call_openai(
         ("bash", {"name": "Bash", "arguments": '{"command": ["something"], "cwd": "something"}'}),
     ]
 
-    for i in range(31):
+    for i in range(11):
         rand_tool = random.randint(0,2)
         tool_call = (
             ChatCompletionMessageToolCall(
@@ -255,8 +255,8 @@ def test_agentic_loop_call_max_iterations_reached(
     with pytest.raises(RuntimeError, match="Agent exceeded max iterations"):
         agent.agentic_loop_call(prompt="what does this repository do", tools=[MagicMock()]*3)
 
-    assert mock_max_iterations_call_openai.chat.completions.create.call_count == 31 # don't include initial call as an iteration
-    assert mock_execute_tool.call_count == 30
+    assert mock_max_iterations_call_openai.chat.completions.create.call_count == 11 # don't include initial call as an iteration
+    assert mock_execute_tool.call_count == 10
 
 @pytest.mark.parametrize(
     "tool_call_fixture_name",

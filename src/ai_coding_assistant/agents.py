@@ -22,7 +22,7 @@ class LlmAgent():
         self.client = client
         self.model = model
         self.workspace = workspace
-        self.max_iterations: int = 30
+        self.max_iterations: int = 10
         self.messages: List[ChatCompletionMessageParam] = []
         self.session_prompt_tokens: int = 0
         self.session_completion_tokens: int = 0
