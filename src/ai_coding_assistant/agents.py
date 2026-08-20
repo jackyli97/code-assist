@@ -1,5 +1,6 @@
 import json
 import click
+import tiktoken
 
 from openai import OpenAI
 from ai_coding_assistant.tools import TOOL_REGISTRY, ToolCallResult
@@ -8,14 +9,13 @@ from openai.types.chat import ChatCompletionFunctionToolParam, ChatCompletionMes
 from pathlib import Path
 from pydantic import ValidationError
 from dataclasses import dataclass
+from ai_coding_assistant.models import get_context_limit
 
 @dataclass
 class AgentResponse():
     content: str
     run_prompt_tokens: int | None
     run_completion_tokens: int | None
-    session_prompt_tokens: int | None
-    session_completion_tokens: int | None
 
 class LlmAgent():
     def __init__(self, client: OpenAI, workspace: Path, model="anthropic/claude-haiku-4.5"):
@@ -26,6 +26,12 @@ class LlmAgent():
         self.messages: List[ChatCompletionMessageParam] = []
         self.session_prompt_tokens: int = 0
         self.session_completion_tokens: int = 0
+        self.context_limit = get_context_limit(model)
+        self.context = 0
+
+    def update_model(self, model: str) -> None:
+        self.model = model
+        self.context_limit = get_context_limit(model)
 
     def agentic_loop_call(self, prompt: str, tools: Iterable[ChatCompletionFunctionToolParam]) -> AgentResponse:
         system_prompt = f"""
@@ -109,18 +115,21 @@ class LlmAgent():
 
             iterations += 1
 
+        self._update_agent_usages(run_completion_tokens=run_completion_tokens, run_prompt_tokens=run_prompt_tokens, tools=tools)
+
         if message.content:
-            self.session_prompt_tokens += run_prompt_tokens
-            self.session_completion_tokens += run_completion_tokens
             return AgentResponse(
                 content=message.content,
                 run_prompt_tokens=run_prompt_tokens,
                 run_completion_tokens=run_completion_tokens,
-                session_prompt_tokens=self.session_prompt_tokens,
-                session_completion_tokens=self.session_completion_tokens
             )
 
         raise RuntimeError("LLM returned no content and no tool calls")
+
+    def _update_agent_usages(self, run_prompt_tokens: int, run_completion_tokens: int, tools: Iterable[ChatCompletionFunctionToolParam]) -> None:
+        self.context = self.estimate_context_tokens(tools)
+        self.session_prompt_tokens += run_prompt_tokens
+        self.session_completion_tokens += run_completion_tokens
 
     def execute_tool(self, tool_call: ChatCompletionMessageFunctionToolCall) -> ToolCallResult:
         function_name = tool_call.function.name
@@ -143,3 +152,14 @@ class LlmAgent():
 
     def clear_history(self):
         self.messages = []
+
+    def estimate_context_tokens(self, tools) -> int:
+        encoding = tiktoken.get_encoding("o200k_base")
+
+        messages_json = json.dumps(self.messages, default=str)
+        tools_json = json.dumps(tools, default=str)
+
+        return (
+            len(encoding.encode(messages_json))
+            + len(encoding.encode(tools_json))
+        )
