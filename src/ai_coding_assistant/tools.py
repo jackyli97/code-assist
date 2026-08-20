@@ -7,6 +7,7 @@ from pathlib import Path
 from dataclasses import dataclass
 from openai.types.chat import ChatCompletionFunctionToolParam
 from openai import pydantic_function_tool
+from itertools import islice
 
 # ---------------------------------------------------------------------------
 # Shared Types
@@ -37,8 +38,24 @@ class ReadToolArgs(BaseModel):
         "The path to the file to read, relative to the project workspace root. "
         "Must be a relative path; absolute paths (e.g. '/etc/passwd') are rejected. "
         "Needs to be a file path, not a directory path."
-    )
-)
+    ))
+    start_line: int = Field(
+    default=1,
+    ge=1,
+    description=(
+        "1-indexed line to begin reading from. "
+        "The tool returns at most 500 lines per call."
+    ))
+    max_lines: int = Field(
+    default=500,
+    ge=1,
+    le=500,
+    description=(
+        "The maximum number of lines to read. "
+        "Use a smaller value for targeted reads. "
+        "Maximum allowed value is 500."
+    ))
+
 class WriteToolArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
     file_path: str = Field(description=(
@@ -78,8 +95,12 @@ class ReadTool(BaseTool):
     @staticmethod
     def call(args: ReadToolArgs, workspace: Path) -> ToolCallResult:
         file_path = args.file_path
+        start_line = args.start_line
+        max_lines = args.max_lines
         try:
-            return ToolCallResult(success=True, output=ReadTool._read_file(file_path, workspace))
+            return ToolCallResult(success=True, output=ReadTool._read_file(
+                file_path=file_path, workspace=workspace, start_line=start_line, max_lines=max_lines
+            ))
         except ValueError as e:
             return ToolCallResult(success=False, output=str(e))
         except PermissionError as e:
@@ -92,15 +113,30 @@ class ReadTool(BaseTool):
             return ToolCallResult(success=False, output="Failure occured while reading to file")
 
     @staticmethod
-    def _read_file(file_path: str, workspace: Path) -> str:
-        path = resolve_safe_path(workspace, file_path)
+    def _read_file(file_path: str, workspace: Path, start_line: int=1, max_lines: int=500) -> str:
+        path = resolve_safe_path(workspace=workspace, file_path=file_path)
         if not path.exists():
             raise FileNotFoundError(file_path)
         if not path.is_file():
             raise IsADirectoryError(file_path)
         with open(path, "r", encoding="utf-8") as file:
-            file_contents = file.read()
-            return file_contents
+            lines_to_read = list(islice(file, start_line-1, start_line-1+max_lines))
+
+
+        if not lines_to_read:
+            return "No lines returned. Start line may be past end of file."
+        num_of_lines_read = len(lines_to_read)
+        end_line = start_line + num_of_lines_read - 1
+        reached_eof = num_of_lines_read < max_lines
+        header = f"lines{start_line}-{end_line}"
+        if reached_eof:
+            header += " (end of file)"
+        return (f"{header}\n" + 
+            "".join(
+            f"line{i}: {line}"
+            for i, line in enumerate(lines_to_read, start=start_line)
+        )
+        )
 
 class WriteTool(BaseTool):
     name="Write"
@@ -112,7 +148,7 @@ class WriteTool(BaseTool):
         file_path = args.file_path
         content = args.content
         try:
-            WriteTool._write_file(file_path, content, workspace)
+            WriteTool._write_file(file_path=file_path, content=content, workspace=workspace)
             return ToolCallResult(success=True, output="Created the file")
         except ValueError as e:
             return ToolCallResult(success=False, output=str(e))
@@ -131,7 +167,7 @@ class WriteTool(BaseTool):
         Raises:
             FileNotFoundError: If the path is invalid due to a directory not existing
         """
-        path = resolve_safe_path(workspace, file_path)        
+        path = resolve_safe_path(workspace=workspace, file_path=file_path)        
         with open(path, "w", encoding="utf-8") as file:
             file.write(content)
 
@@ -145,7 +181,7 @@ class BashTool(BaseTool):
         command = args.command
         cwd = args.cwd
         try:
-            command_exec_res = BashTool._execute_command(command, cwd, workspace)
+            command_exec_res = BashTool._execute_command(command=command, cwd=cwd, workspace=workspace)
             return (
                 ToolCallResult(success=True, output=command_exec_res.stdout) if command_exec_res.returncode == 0
                 else ToolCallResult(success=False, output=command_exec_res.stderr)
@@ -163,7 +199,7 @@ class BashTool(BaseTool):
 
     @staticmethod
     def _execute_command(command: list[str], cwd: str, workspace: Path) -> CompletedProcess[str]:
-        working_dir = resolve_safe_path(workspace, cwd)
+        working_dir = resolve_safe_path(workspace=workspace, file_path=cwd)
 
         if not working_dir.exists():
             raise FileNotFoundError(working_dir)

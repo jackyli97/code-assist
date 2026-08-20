@@ -137,7 +137,7 @@ def test_resolve_safe_path_allows_env_like_filenames(tmp_path: Path) -> None:
 def test__read_file_returns_file_contents(tmp_path: Path) -> None:
     (tmp_path / "hello.txt").write_text("hello world\n")
 
-    assert ReadTool._read_file("hello.txt", tmp_path) == "hello world\n"
+    assert "hello world\n" in ReadTool._read_file("hello.txt", tmp_path)
 
 
 def test__read_file_raises_when_file_missing(tmp_path: Path) -> None:
@@ -165,7 +165,7 @@ def test_read_tool_call_returns_contents_on_success(tmp_path: Path) -> None:
     result = ReadTool.call(ReadToolArgs(file_path="hello.txt"), tmp_path)
 
     assert result.success is True
-    assert result.output == "hello world\n"
+    assert "hello world\n" in result.output
 
 
 @pytest.mark.parametrize(
@@ -187,7 +187,7 @@ def test_read_tool_call_wraps_helper_exception_as_failure(
     raised: Exception,
     expected_substr: str,
 ) -> None:
-    def raise_it(file_path: str, workspace: Path) -> str:
+    def raise_it(file_path: str, workspace: Path, start_line: int, max_lines: int) -> str:
         raise raised
 
     monkeypatch.setattr(ReadTool, "_read_file", staticmethod(raise_it))
