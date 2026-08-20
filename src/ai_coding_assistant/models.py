@@ -1,19 +1,22 @@
 import requests
+from dataclasses import dataclass
+@dataclass
+class ModelLookup:
+    found: bool
+    context_limit: int | None = None
 
 
-def get_context_limit(target_model_id: str) -> int | None:
-    url = "https://openrouter.ai/api/v1/models"
+def lookup_model(target_model_id: str) -> ModelLookup:
     try:
-        response = requests.get(url, timeout=5)
+        response = requests.get("https://openrouter.ai/api/v1/models", timeout=5)
         response.raise_for_status()
         data = response.json()
     except (requests.RequestException, ValueError):
-        # Network hiccup, non-2xx status, or malformed JSON — fall back to
-        # "unknown context limit" so a temporary API blip doesn't crash the CLI.
-        return None
+        return ModelLookup(found=False)
 
     for model in data.get("data", []):
         if model.get("id") == target_model_id:
-            return model.get("context_length")
+            return ModelLookup(found=True, context_limit=model.get("context_length"))
 
-    return None
+    return ModelLookup(found=False)
+    

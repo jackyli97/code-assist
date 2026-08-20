@@ -1,5 +1,5 @@
 from ai_coding_assistant.agents import LlmAgent
-from openai.types.chat import ChatCompletionFunctionToolParam
+from ai_coding_assistant.models import lookup_model
 import click
 import math
 
@@ -29,7 +29,7 @@ def run_agent(agent: LlmAgent, prompt: str) -> None:
             click.echo(
                 click.style(
                     f"Warning: context is ~{utilization:.0%} full.\n"
-                    "Use /clear to start fresh or /model to switch models.\n"
+                    "Use /clear to start fresh, /compact to compact history, or /model to switch models.\n"
                     "Use /status to view context usage and limit",
                     fg="yellow",
                 )
@@ -45,19 +45,62 @@ def run_interactive(agent: LlmAgent) -> None:
         try:
             prompt = click.prompt(">", prompt_suffix=" ").strip()
 
-            if not prompt:
+            command, _, argument = prompt.partition(" ")
+            argument = argument.strip()
+
+            if not command:
                 continue
 
-            if prompt in ("/exit", "exit"):
+            if command in ("/exit", "exit"):
                 click.echo("\nExiting...")
                 return
 
-            if prompt == "/clear":
+            if command == "/clear":
                 agent.clear_history()
                 click.echo("Conversation cleared.")
                 continue
 
-            if prompt == "/status":
+            if command == "/compact":
+                message_compaction_result = agent.compact_message_history()
+                if message_compaction_result.success:
+                    click.echo(
+                        "Message compaction completed.\n"
+                        "If still near limit, consider clearing history or switching to model with larger context"
+                    )
+                else:
+                    click.echo(
+                        "Message compaction failed with reason:\n"
+                        f"{message_compaction_result.failure_reason}"
+                    ) 
+                if message_compaction_result.run_prompt_tokens and message_compaction_result.run_completion_tokens:
+                        click.echo(
+                            f"Run tokens: {message_compaction_result.run_prompt_tokens:,} input / "
+                            f"{message_compaction_result.run_completion_tokens:,} output"
+                        )
+                        click.echo(
+                            f"Session tokens: {agent.session_prompt_tokens:,} input / "
+                            f"{agent.session_completion_tokens:,} output"
+                        )
+                continue
+
+            if command == "/model":
+                if argument:
+                    # validate model
+                    validate_model_res = lookup_model(argument)
+                    if not validate_model_res.found:
+                        click.echo(
+                            f"The model {argument} could not be validated. "
+                            "Double check model id/name on https://openrouter.ai/models and try again"
+                        )
+                    else:
+                        agent.update_model(model=argument, context_limit=validate_model_res.context_limit)
+                else:
+                    click.echo(f"  Model: {agent.model}")
+                    click.echo(f"  Model's context limit: {f"{agent.context_limit} tokens" if agent.context_limit else "N/A"}") 
+
+                continue
+
+            if command == "/status":
                 click.echo("Session status")
                 click.echo(f"  Model: {agent.model}")
                 click.echo(f"  Model's context limit: {f"{agent.context_limit} tokens" if agent.context_limit else "N/A"}")
@@ -75,12 +118,14 @@ def run_interactive(agent: LlmAgent) -> None:
                     )
                 continue
 
-            if prompt == "/help":
+            if command == "/help":
                 click.echo("\nAvailable Commands:")
-                click.echo("  /help   - Show this help menu")
                 click.echo("  /clear  - Reset the conversation history")
-                click.echo("  /status  - Show model, workspace, and token and context usage")
+                click.echo("  /compact  - Compacts conversation history via summarization")
                 click.echo("  /exit   - Quit the assistant (or use Ctrl+C)")
+                click.echo("  /help   - Show this help menu")
+                click.echo("  /model  - Show the current model, or switch with /model <model-id>")
+                click.echo("  /status  - Show model, workspace, and token and context usage")
                 click.echo()
                 continue
 

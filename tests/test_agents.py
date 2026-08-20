@@ -1,4 +1,4 @@
-from ai_coding_assistant.agents import LlmAgent  # noqa: F401
+from ai_coding_assistant.agents import LlmAgent, AgentResponse  # noqa: F401
 
 import json
 import pytest
@@ -9,18 +9,21 @@ from openai.types import CompletionUsage
 from openai.types.chat import ChatCompletionMessage, ChatCompletionMessageToolCall
 from openai.types.chat.chat_completion import ChatCompletion, Choice
 from openai.types.chat.chat_completion_message_tool_call import Function
-from ai_coding_assistant.tools import ToolCallResult
 from pytest_mock import MockerFixture
 import random
-from ai_coding_assistant.tools import TOOL_REGISTRY
+from ai_coding_assistant.tools import TOOL_REGISTRY, ToolCallResult
+from ai_coding_assistant.models import ModelLookup
 
 
 @pytest.fixture
 def stub_context_limit(mocker: MockerFixture) -> None:
     """Prevent LlmAgent.__init__ from making a live HTTP call to OpenRouter."""
     mocker.patch(
-        "ai_coding_assistant.agents.get_context_limit",
-        return_value=200_000,
+        "ai_coding_assistant.agents.lookup_model",
+        return_value=ModelLookup(
+            found=True,
+            context_limit=200_000
+        ),
     )
 
 def create_mock_completion(id_str: str, message: ChatCompletionMessage) -> ChatCompletion:
@@ -328,6 +331,35 @@ def test_execute_call_fails_model_validate_json(
     assert not result.success
     assert "validation errors" in result.output
 
+
+# ---------------------------------------------------------------------------
+# Message history
+# ---------------------------------------------------------------------------
+
+def test_message_history_preserves_across_agent_calls(
+    mock_multi_call_openai: MagicMock,
+    tmp_path: Path,
+    mocker: MockerFixture,    
+):
+    agent = LlmAgent(client=mock_multi_call_openai, workspace=tmp_path, tools=[MagicMock()]*3)
+    mocker.patch.object(
+        agent, "execute_tool",
+        return_value=ToolCallResult(success=True, output="stubbed"),
+    )
+
+    agent.agentic_loop_call(prompt="what does this repository do")
+
+    assert len(agent.runs) == 1
+    assert len(agent.runs[0])  == len(agent.build_message_history()) - 1 # subtract the system prompt
+
+    # second run on the same agent: reset the side effect using saved mock responses
+    mock_multi_call_openai.chat.completions.create.side_effect = mock_multi_call_openai.mock_responses
+    agent.agentic_loop_call(prompt="what does this repository do")
+
+    assert len(agent.runs) == 2
+    assert len(agent.runs[0]) + len(agent.runs[1]) == len(agent.build_message_history()) - 1 # subtract the system prompt
+
+
 # ---------------------------------------------------------------------------
 # Token tracking — agent.context is refreshed at the end of every
 # agentic_loop_call via _update_agent_usages -> updated token usages.
@@ -423,7 +455,6 @@ def test_agentic_loop_call_context_matches_direct_estimation(
     # The context stored on the agent after a run should equal a fresh call
     # to estimate_context_tokens on the same messages/tools — proves the
     # update path in _update_agent_usages is wired to the same estimator.
-    tools: list = []
     agent = LlmAgent(client=mock_no_tool_call_openai, workspace=tmp_path, tools=[MagicMock()]*3)
 
     agent.agentic_loop_call(prompt="hello")
@@ -439,14 +470,18 @@ def test_agentic_loop_call_context_matches_direct_estimation(
 def test_estimate_context_tokens_empty_state_is_small_but_nonzero(
     stub_context_limit: None, tmp_path: Path,
 ) -> None:
-    # With no messages and no tools we're just encoding "[]" + "[]".
-    # Should be a small positive integer, not zero.
+    # With no messages and no tools we're just encoding "[system prompt message]" + "[]".
+    # Should be equal to the system prompt serialized
+    encoding = tiktoken.get_encoding("o200k_base")
     agent = LlmAgent(client=MagicMock(), workspace=tmp_path, tools=[])
+    system_message = agent._get_system_message()
+    system_message_json = agent._serialize_json([system_message])
+    empty_tools_json = agent._serialize_json([])
+    system_message_empty_tools_tokens = len(encoding.encode(system_message_json)) + len(encoding.encode(empty_tools_json))
 
     tokens = agent.estimate_context_tokens()
 
-    assert tokens > 0
-    assert tokens < 10  # empty JSON arrays should be a handful of tokens
+    assert tokens == system_message_empty_tools_tokens
 
 
 def test_estimate_context_tokens_grows_with_more_messages(
@@ -454,10 +489,10 @@ def test_estimate_context_tokens_grows_with_more_messages(
 ) -> None:
     agent = LlmAgent(client=MagicMock(), workspace=tmp_path, tools=[MagicMock()]*3)
 
-    agent.messages = [{"role": "user", "content": "hi"}]
+    agent.runs = [[{"role": "user", "content": "hi"}]]
     small = agent.estimate_context_tokens()
 
-    agent.messages.append(
+    agent.runs[0].append(
         {"role": "assistant", "content": "a much longer response " * 100}
     )
     big = agent.estimate_context_tokens()
@@ -474,3 +509,256 @@ def test_estimate_context_tokens_grows_with_tools(
     with_tools = agent_with_tools.estimate_context_tokens()
 
     assert with_tools > without
+
+
+# ---------------------------------------------------------------------------
+# _llm_summarize_messages — thin wrapper around client.chat.completions.create
+# with a compaction prompt. Tests focus on the response-shape branching.
+# ---------------------------------------------------------------------------
+
+
+def _make_agent(client: MagicMock, tmp_path: Path, tools: list | None = None) -> LlmAgent:
+    return LlmAgent(client=client, tools=tools or [], workspace=tmp_path)
+
+
+def test_llm_summarize_messages_returns_content_on_success(
+    stub_context_limit: None, tmp_path: Path,
+) -> None:
+    client = MagicMock()
+    client.chat.completions.create.return_value = create_mock_completion(
+        "chatcmpl-summary",
+        ChatCompletionMessage(role="assistant", content="short summary", tool_calls=None),
+    )
+    agent = _make_agent(client, tmp_path)
+
+    result = agent._llm_summarize_messages("some serialized history")
+
+    assert result.content == "short summary"
+    # single LLM call, no tools arg (compaction shouldn't invoke tools)
+    assert client.chat.completions.create.call_count == 1
+    call_kwargs = client.chat.completions.create.call_args.kwargs
+    assert "tools" not in call_kwargs
+
+
+def test_llm_summarize_messages_raises_when_no_choices(
+    stub_context_limit: None, tmp_path: Path,
+) -> None:
+    client = MagicMock()
+    empty_response = create_mock_completion(
+        "chatcmpl-empty",
+        ChatCompletionMessage(role="assistant", content="ignored", tool_calls=None),
+    )
+    empty_response.choices = []
+    client.chat.completions.create.return_value = empty_response
+    agent = _make_agent(client, tmp_path)
+
+    with pytest.raises(RuntimeError, match="no choices"):
+        agent._llm_summarize_messages("history")
+
+
+def test_llm_summarize_messages_raises_when_empty_content(
+    stub_context_limit: None, tmp_path: Path,
+) -> None:
+    client = MagicMock()
+    client.chat.completions.create.return_value = create_mock_completion(
+        "chatcmpl-nocontent",
+        ChatCompletionMessage(role="assistant", content=None, tool_calls=None),
+    )
+    agent = _make_agent(client, tmp_path)
+
+    with pytest.raises(RuntimeError, match="no content"):
+        agent._llm_summarize_messages("history")
+
+
+# ---------------------------------------------------------------------------
+# compact_message_history — orchestration around _llm_summarize_messages.
+# Patch _llm_summarize_messages in most tests so we test state transitions,
+# not the LLM branching (covered above).
+# ---------------------------------------------------------------------------
+
+
+def _sample_run(idx: int) -> list:
+    """Build a small canned run: user prompt + assistant response."""
+    return [
+        {"role": "user", "content": f"prompt {idx}"},
+        {"role": "assistant", "content": f"response {idx}"},
+    ]
+
+
+def test_compact_returns_failure_when_no_context_limit(
+    stub_context_limit: None, tmp_path: Path,
+) -> None:
+    agent = _make_agent(MagicMock(), tmp_path)
+    agent.context_limit = None  # override the stubbed value
+    agent.context = 1_000_000  # doesn't matter — the None check runs first
+
+    result = agent.compact_message_history()
+
+    assert result.success is False
+    assert result.failure_reason is not None
+    assert "context limit" in result.failure_reason.lower()
+
+
+def test_compact_is_noop_when_below_utilization_threshold(
+    stub_context_limit: None, tmp_path: Path, mocker: MockerFixture,
+) -> None:
+    agent = _make_agent(MagicMock(), tmp_path)
+    agent.context_limit = 100_000
+    agent.context = 50_000  # 50% utilization, well below the 0.8 trigger
+    agent.runs = [_sample_run(0)]
+    original_runs = list(agent.runs)
+
+    spy = mocker.spy(agent, "_llm_summarize_messages")
+    result = agent.compact_message_history()
+
+    assert result.success is True
+    assert result.failure_reason is None
+    assert spy.call_count == 0                # no LLM call fired
+    assert agent.runs == original_runs         # state unchanged
+    assert agent.compacted_message is None
+
+
+def test_compact_returns_failure_when_over_threshold_but_no_runs(
+    stub_context_limit: None, tmp_path: Path,
+) -> None:
+    agent = _make_agent(MagicMock(), tmp_path)
+    agent.context_limit = 100_000
+    agent.context = 90_000
+    agent.runs = []
+
+    result = agent.compact_message_history()
+
+    assert result.success is False
+    assert result.failure_reason is not None
+    assert "not enough messages" in result.failure_reason.lower()
+
+
+def test_compact_summarizes_and_reduces_runs_on_happy_path(
+    stub_context_limit: None, tmp_path: Path, mocker: MockerFixture,
+) -> None:
+    agent = _make_agent(MagicMock(), tmp_path)
+    agent.context_limit = 100_000
+    agent.context = 90_000  # 90% utilization → triggers compaction
+    agent.runs = [_sample_run(0), _sample_run(1), _sample_run(2)]
+
+    mock_summarize = mocker.patch.object(
+        agent, "_llm_summarize_messages",
+        return_value=AgentResponse(
+            content="condensed summary text"
+        )
+    )
+
+    result = agent.compact_message_history()
+
+    assert result.success is True
+    assert mock_summarize.call_count == 1
+    # compacted_message installed with the returned summary embedded
+    assert agent.compacted_message is not None
+    assert agent.compacted_message["role"] == "system"
+    assert type(agent.compacted_message["content"]) == str and "condensed summary text" in agent.compacted_message["content"]
+    # at least the first run was consumed; runs list is strictly shorter
+    assert len(agent.runs) < 3
+
+
+def test_compact_returns_failure_when_llm_summarize_raises(
+    stub_context_limit: None, tmp_path: Path, mocker: MockerFixture,
+) -> None:
+    agent = _make_agent(MagicMock(), tmp_path)
+    agent.context_limit = 100_000
+    agent.context = 95_000
+    agent.runs = [_sample_run(0), _sample_run(1)]
+
+    mocker.patch.object(
+        agent, "_llm_summarize_messages",
+        side_effect=RuntimeError("simulated LLM failure"),
+    )
+
+    result = agent.compact_message_history()
+
+    assert result.success is False
+    assert result.failure_reason is not None
+    assert "error" in result.failure_reason.lower()
+    # state should NOT mutate on failure
+    assert agent.compacted_message is None
+    assert len(agent.runs) == 2
+
+
+def test_compact_consumes_multiple_runs_when_needed(
+    stub_context_limit: None, tmp_path: Path, mocker: MockerFixture,
+) -> None:
+    # With multiple runs and high utilization, the loop should consume at
+    # least one run. Exact count depends on per-run token size, so assert
+    # relative behavior: runs list shrinks and compacted_message is set.
+    agent = _make_agent(MagicMock(), tmp_path)
+    agent.context_limit = 100_000
+    agent.context = 95_000
+    agent.runs = [_sample_run(i) for i in range(5)]
+
+    mocker.patch.object(
+        agent, "_llm_summarize_messages", return_value=AgentResponse(
+            content="summary"
+        ),
+    )
+
+    result = agent.compact_message_history()
+
+    assert result.success is True
+    assert agent.compacted_message is not None
+    assert len(agent.runs) < 5
+
+
+def test_compact_includes_existing_summary_when_recompacting(
+    stub_context_limit: None, tmp_path: Path, mocker: MockerFixture,
+) -> None:
+    # If a compacted_message already exists (from a prior compaction), it
+    # should be included in the payload sent to _llm_summarize_messages so
+    # the new summary can subsume the old one.
+    agent = _make_agent(MagicMock(), tmp_path)
+    agent.context_limit = 100_000
+    agent.context = 95_000
+    agent.compacted_message = {
+        "role": "system",
+        "content": "Summary of earlier conversation history:\n\nold summary content",
+    }
+    agent.runs = [_sample_run(0)]
+
+    mock_summarize = mocker.patch.object(
+        agent, "_llm_summarize_messages", return_value=AgentResponse(
+            content="new combined summary"
+        ),
+    )
+
+    result = agent.compact_message_history()
+
+    assert result.success is True
+    # the payload passed to the LLM includes the old summary
+    (payload,) = mock_summarize.call_args.args
+    assert "old summary content" in payload
+    # and the new summary replaces the old one on the agent
+    assert type(agent.compacted_message["content"]) == str and "new combined summary" in agent.compacted_message["content"]
+
+
+def test_compact_adds_llm_tokens_to_session_totals(
+    stub_context_limit: None, tmp_path: Path, mocker: MockerFixture,
+) -> None:
+    agent = _make_agent(MagicMock(), tmp_path)
+    agent.context_limit = 100_000
+    agent.context = 95_000
+    agent.runs = [_sample_run(0)]
+    agent.session_prompt_tokens = 500
+    agent.session_completion_tokens = 200
+
+    mocker.patch.object(
+        agent, "_llm_summarize_messages",
+        return_value=AgentResponse(
+            content="summary", run_prompt_tokens=100, run_completion_tokens=50,
+        ),
+    )
+
+    result = agent.compact_message_history()
+
+    assert agent.session_prompt_tokens == 600
+    assert agent.session_completion_tokens == 250
+    # also surfaced on the result for callers to display
+    assert result.run_prompt_tokens == 100
+    assert result.run_completion_tokens == 50

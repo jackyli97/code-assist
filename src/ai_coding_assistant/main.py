@@ -1,7 +1,7 @@
 import click
 from pathlib import Path
 
-from ai_coding_assistant.config import set_api_key
+from ai_coding_assistant.config import set_api_key, set_preferred_model
 
 from dotenv import load_dotenv
 from ai_coding_assistant.tools import get_tools
@@ -40,7 +40,7 @@ def main(ctx: click.Context, prompt: str | None) -> None:
         run_interactive(agent=agent)
 
 
-@main.group()
+@main.group(no_args_is_help=True)
 def config() -> None:
     """Configuration options."""
     pass
@@ -51,5 +51,13 @@ def config_set_key() -> None:
     """Configure your OpenRouter API key."""
     set_api_key()
 
+@config.command("set-model")
+@click.argument('model', type=str)
+def config_model(model: str) -> None:
+    """
+    Configure your preferred LLM model from OpenRouter.
+    """
+    set_preferred_model(model)
+    
 if __name__ == "__main__":
     main()
