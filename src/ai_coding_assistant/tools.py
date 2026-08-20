@@ -128,14 +128,14 @@ class ReadTool(BaseTool):
         num_of_lines_read = len(lines_to_read)
         end_line = start_line + num_of_lines_read - 1
         reached_eof = num_of_lines_read < max_lines
-        header = f"lines{start_line}-{end_line}"
+        header = f"Lines {start_line}-{end_line}"
         if reached_eof:
             header += " (end of file)"
         return (f"{header}\n" + 
             "".join(
             f"line{i}: {line}"
             for i, line in enumerate(lines_to_read, start=start_line)
-        )
+        ).strip()
         )
 
 class WriteTool(BaseTool):
