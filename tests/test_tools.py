@@ -14,6 +14,22 @@ from ai_coding_assistant.tools import (
 )
 
 from subprocess import CalledProcessError
+from collections.abc import Callable
+
+LARGE_FILE_SIZE = 1250
+MAX_LINES = 500
+
+@pytest.fixture
+def generate_large_file() -> Callable[[Path], Path]:
+
+    def create_file(cwd: Path):
+        file_path = (cwd / "test_1250.txt").resolve()
+        with open(file_path, "w") as f:
+            for i in range(1, LARGE_FILE_SIZE+1):
+                f.write(f"This is line number {i}\n")
+        return file_path
+
+    return create_file
 
 # ---------------------------------------------------------------------------
 # validate_command — single source of truth for path safety rules.
@@ -137,7 +153,7 @@ def test_resolve_safe_path_allows_env_like_filenames(tmp_path: Path) -> None:
 def test__read_file_returns_file_contents(tmp_path: Path) -> None:
     (tmp_path / "hello.txt").write_text("hello world\n")
 
-    assert ReadTool._read_file("hello.txt", tmp_path) == "hello world\n"
+    assert "hello world\n" in ReadTool._read_file("hello.txt", tmp_path)
 
 
 def test__read_file_raises_when_file_missing(tmp_path: Path) -> None:
@@ -150,6 +166,35 @@ def test__read_file_raises_when_path_is_directory(tmp_path: Path) -> None:
 
     with pytest.raises(IsADirectoryError):
         ReadTool._read_file("somedir", tmp_path)
+
+def test__read_file_large_file_over_multiple_calls(generate_large_file: Callable[[Path], Path], tmp_path: Path) -> None:
+    # 1250 lines will be read over 3 calls
+    large_file = generate_large_file(tmp_path).name
+
+    # call 1 returns lines 1-500
+    start_line_1 = 1
+    result_1 = ReadTool._read_file(file_path=large_file, workspace=tmp_path, start_line=start_line_1, max_lines=MAX_LINES)
+    result_1_num_lines= len(result_1.split("\n")[1:]) #exclude header
+    assert result_1_num_lines == MAX_LINES
+    assert f"Lines {start_line_1}-{start_line_1 + result_1_num_lines - 1}" in result_1
+    assert "end of file" not in result_1
+
+    # # call 2 returns lines 501-1000
+    start_line_2 = result_1_num_lines + 1
+    result_2 = ReadTool._read_file(file_path=large_file, workspace=tmp_path, start_line=start_line_2, max_lines=MAX_LINES)
+    result_2_num_lines= len(result_2.split("\n")[1:]) #exclude header
+    assert result_2_num_lines == MAX_LINES
+    assert f"Lines {start_line_2}-{start_line_2 + result_2_num_lines - 1}" in result_2
+    assert "end of file" not in result_2
+
+    # # call 3 returns lines 1001-1250 and end of file
+    start_line_3 = result_1_num_lines + result_2_num_lines + 1
+    result_3 = ReadTool._read_file(file_path=large_file, workspace=tmp_path, start_line=start_line_3, max_lines=MAX_LINES)
+    result_3_num_lines= len(result_3.split("\n")[1:]) #exclude header
+    assert result_3_num_lines == LARGE_FILE_SIZE - result_1_num_lines - result_2_num_lines 
+    assert f"Lines {start_line_3}-{start_line_3 + result_3_num_lines - 1}" in result_3
+    assert "end of file" in result_3
+
 
 
 # ---------------------------------------------------------------------------
@@ -165,7 +210,7 @@ def test_read_tool_call_returns_contents_on_success(tmp_path: Path) -> None:
     result = ReadTool.call(ReadToolArgs(file_path="hello.txt"), tmp_path)
 
     assert result.success is True
-    assert result.output == "hello world\n"
+    assert "hello world\n" in result.output
 
 
 @pytest.mark.parametrize(
@@ -187,7 +232,7 @@ def test_read_tool_call_wraps_helper_exception_as_failure(
     raised: Exception,
     expected_substr: str,
 ) -> None:
-    def raise_it(file_path: str, workspace: Path) -> str:
+    def raise_it(file_path: str, workspace: Path, start_line: int, max_lines: int) -> str:
         raise raised
 
     monkeypatch.setattr(ReadTool, "_read_file", staticmethod(raise_it))
