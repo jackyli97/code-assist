@@ -3,6 +3,7 @@ from ai_coding_assistant.agents import LlmAgent  # noqa: F401
 import pytest
 from pathlib import Path
 from unittest.mock import MagicMock
+from openai.types import CompletionUsage
 from openai.types.chat import ChatCompletionMessage, ChatCompletionMessageToolCall
 from openai.types.chat.chat_completion import ChatCompletion, Choice
 from openai.types.chat.chat_completion_message_tool_call import Function
@@ -12,6 +13,8 @@ import random
 from ai_coding_assistant.tools import TOOL_REGISTRY
 
 def create_mock_completion(id_str: str, message: ChatCompletionMessage) -> ChatCompletion:
+    prompt_tokens=random.randint(150,300)
+    completion_tokens=random.randint(300,500)
     return ChatCompletion(
         id=id_str,
         model="gpt-4o",
@@ -23,7 +26,12 @@ def create_mock_completion(id_str: str, message: ChatCompletionMessage) -> ChatC
                 index=0,
                 message=message
             )
-        ]
+        ],
+        usage=CompletionUsage(
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=prompt_tokens+completion_tokens
+        )
     )
 
 @pytest.fixture
@@ -100,7 +108,9 @@ def mock_multi_call_openai(
         ChatCompletionMessage(role="assistant", content="summary of the repository", tool_calls=None)
     )
 
-    client.chat.completions.create.side_effect = [response_1, response_2, response_3]
+    responses = [response_1, response_2, response_3]
+    client.chat.completions.create.side_effect = responses
+    client.mock_responses = responses
     return client
 
 @pytest.fixture
@@ -306,3 +316,41 @@ def test_execute_call_fails_model_validate_json(
 
     assert not result.success
     assert "validation errors" in result.output
+
+def test_token_usage(
+    mock_multi_call_openai: MagicMock,
+    tmp_path: Path,
+    mocker: MockerFixture,
+):
+    agent = LlmAgent(client=mock_multi_call_openai, workspace=tmp_path)
+    mocker.patch.object(
+        agent, "execute_tool",
+        return_value=ToolCallResult(success=True, output="stubbed"),
+    )
+
+    expected_prompt_tokens = sum(
+        r.usage.prompt_tokens for r in mock_multi_call_openai.mock_responses if r.usage
+    )
+    expected_completion_tokens = sum(
+        r.usage.completion_tokens for r in mock_multi_call_openai.mock_responses if r.usage
+    )
+
+    result = agent.agentic_loop_call(prompt="what does this repository do", tools=[MagicMock()]*3)
+
+    assert result.run_prompt_tokens == expected_prompt_tokens
+    assert result.run_completion_tokens == expected_completion_tokens
+    assert result.session_prompt_tokens == expected_prompt_tokens
+    assert result.session_completion_tokens == expected_completion_tokens
+    assert agent.session_prompt_tokens == expected_prompt_tokens
+    assert agent.session_completion_tokens == expected_completion_tokens
+
+    # second run on the same agent: reset the side effect using saved mock responses
+    mock_multi_call_openai.chat.completions.create.side_effect = mock_multi_call_openai.mock_responses
+    result_2 = agent.agentic_loop_call(prompt="what does this repository do", tools=[MagicMock()]*3)
+
+    assert result_2.run_prompt_tokens == expected_prompt_tokens
+    assert result_2.run_completion_tokens == expected_completion_tokens
+    assert result_2.session_prompt_tokens == expected_prompt_tokens * 2
+    assert result_2.session_completion_tokens == expected_completion_tokens * 2
+    assert agent.session_prompt_tokens == expected_prompt_tokens * 2
+    assert agent.session_completion_tokens == expected_completion_tokens * 2

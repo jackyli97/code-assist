@@ -1,4 +1,5 @@
 import json
+import click
 
 from openai import OpenAI
 from ai_coding_assistant.tools import TOOL_REGISTRY, ToolCallResult
@@ -6,6 +7,15 @@ from typing import Iterable, List, cast
 from openai.types.chat import ChatCompletionFunctionToolParam, ChatCompletionMessageParam, ChatCompletionMessageFunctionToolCall
 from pathlib import Path
 from pydantic import ValidationError
+from dataclasses import dataclass
+
+@dataclass
+class AgentResponse():
+    content: str
+    run_prompt_tokens: int | None
+    run_completion_tokens: int | None
+    session_prompt_tokens: int | None
+    session_completion_tokens: int | None
 
 class LlmAgent():
     def __init__(self, client: OpenAI, workspace: Path, model="anthropic/claude-haiku-4.5"):
@@ -14,8 +24,10 @@ class LlmAgent():
         self.workspace = workspace
         self.max_iterations: int = 30
         self.messages: List[ChatCompletionMessageParam] = []
+        self.session_prompt_tokens: int = 0
+        self.session_completion_tokens: int = 0
 
-    def agentic_loop_call(self, prompt: str, tools: Iterable[ChatCompletionFunctionToolParam]) -> str:
+    def agentic_loop_call(self, prompt: str, tools: Iterable[ChatCompletionFunctionToolParam]) -> AgentResponse:
         system_prompt = f"""
         You are an AI coding assistant operating on a local project.
 
@@ -45,6 +57,9 @@ class LlmAgent():
         if not response.choices or len(response.choices) == 0:
             raise RuntimeError("no choices in response")
 
+        run_prompt_tokens: int = response.usage.prompt_tokens if response.usage else 0
+        run_completion_tokens: int = response.usage.completion_tokens if response.usage else 0
+
         message = response.choices[0].message
         iterations: int = 0
 
@@ -56,7 +71,12 @@ class LlmAgent():
             # make tool call
             for tool_call in message.tool_calls:
                 if tool_call.type == "function":
+
+                    # log to user tool to be called
+                    click.echo(f"● {tool_call.function.name}: {tool_call.function.arguments}")
+
                     tool_output = self.execute_tool(tool_call=tool_call)
+
                     # add tool call response to messages
                     self.messages.append({
                         "role": "tool",
@@ -66,6 +86,14 @@ class LlmAgent():
                             "output": tool_output.output,
                         })
                     })
+
+                    # log to user tool call
+                    if tool_output.success:
+                        click.echo("  ✓ Done")
+                    else:
+                        click.echo(f"  ✗ Failed: {tool_output.output}")
+
+
             # call llm with new tool result and assign response to newest response
             response = self.client.chat.completions.create(
                 model = self.model,
@@ -76,11 +104,21 @@ class LlmAgent():
             if not response.choices or len(response.choices) == 0:
                 raise RuntimeError("no choices in response")
             message = response.choices[0].message
+            run_prompt_tokens += response.usage.prompt_tokens if response.usage else 0
+            run_completion_tokens += response.usage.completion_tokens if response.usage else 0
 
             iterations += 1
 
         if message.content:
-            return message.content
+            self.session_prompt_tokens += run_prompt_tokens
+            self.session_completion_tokens += run_completion_tokens
+            return AgentResponse(
+                content=message.content,
+                run_prompt_tokens=run_prompt_tokens,
+                run_completion_tokens=run_completion_tokens,
+                session_prompt_tokens=self.session_prompt_tokens,
+                session_completion_tokens=self.session_completion_tokens
+            )
 
         raise RuntimeError("LLM returned no content and no tool calls")
 
