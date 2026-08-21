@@ -280,3 +280,7 @@ Notable limitations include:
 * Session-level permission grants are not persisted between sessions.
 * File writes replace the target file contents rather than applying structured patches.
 * Tool execution is limited to file reads, file writes, and command execution.
+
+## License
+
+Licensed under the MIT License. See `LICENSE` for details.
