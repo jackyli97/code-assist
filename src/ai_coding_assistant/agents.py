@@ -3,13 +3,15 @@ import click
 import tiktoken
 
 from openai import OpenAI
-from ai_coding_assistant.tools import TOOL_REGISTRY, ToolCallResult
-from typing import Iterable, List, cast
+from ai_coding_assistant.tools import TOOL_REGISTRY, ToolCallResult, BaseTool
+from typing import Iterable, List, cast, Dict, Type
+from enum import Enum
 from openai.types.chat import ChatCompletionFunctionToolParam, ChatCompletionMessageParam, ChatCompletionMessageFunctionToolCall
 from pathlib import Path
 from pydantic import ValidationError
 from dataclasses import dataclass
 from ai_coding_assistant.models import lookup_model
+from collections import defaultdict
 
 @dataclass
 class AgentResponse():
@@ -24,6 +26,10 @@ class CompactMessagesResult():
     run_prompt_tokens: int | None = None
     run_completion_tokens: int | None = None
 
+class PermissionChoice(str, Enum):
+    YES = "y"
+    SESSION = "s"
+    NO = "n"
 class LlmAgent():
     def __init__(
         self, 
@@ -44,6 +50,7 @@ class LlmAgent():
         self.context_limit = context_limit or lookup_model(self.model).context_limit
         self.context = 0
         self.compacted_message: ChatCompletionMessageParam | None = None
+        self.granted_tool_permissions: Dict[Type[BaseTool], bool] = defaultdict(bool)
 
     DEFAULT_MODEL = "anthropic/claude-haiku-4.5"
     CONTEXT_UTILIZATION_WARNING_RATIO = 0.8
@@ -155,25 +162,6 @@ class LlmAgent():
             )
 
         raise RuntimeError("LLM returned no content and no tool calls")
-
-    def execute_tool(self, tool_call: ChatCompletionMessageFunctionToolCall) -> ToolCallResult:
-        function_name = tool_call.function.name
-        function_arguments = tool_call.function.arguments
-
-        # validate the args provided by LLM against the args defined for tool
-        if function_name not in TOOL_REGISTRY:
-            return ToolCallResult(
-                success=False,
-                output=f"Unknown tool: {function_name!r}. Available tools: {sorted(TOOL_REGISTRY)}",
-            )
-        tool = TOOL_REGISTRY[function_name]
-        tool_arg_model = tool.args_model
-        try:
-            validated_args = tool_arg_model.model_validate_json(function_arguments)
-        except ValidationError as e:
-            return ToolCallResult(success=False, output=str(e))
-
-        return tool.call(validated_args, self.workspace)
 
     # ---------------------------------------------------------------------------
     # Agent state management
@@ -375,3 +363,54 @@ class LlmAgent():
             default=str,
             ensure_ascii=False,
         )
+
+    # ---------------------------------------------------------------------------
+    # Tools
+    # ---------------------------------------------------------------------------
+    def execute_tool(self, tool_call: ChatCompletionMessageFunctionToolCall) -> ToolCallResult:
+        function_name = tool_call.function.name
+        function_arguments = tool_call.function.arguments
+
+        # validate the args provided by LLM against the args defined for tool
+        if function_name not in TOOL_REGISTRY:
+            return ToolCallResult(
+                success=False,
+                output=f"Unknown tool: {function_name!r}. Available tools: {sorted(TOOL_REGISTRY)}",
+            )
+        tool = TOOL_REGISTRY[function_name]
+        tool_arg_model = tool.args_model
+        try:
+            validated_args = tool_arg_model.model_validate_json(function_arguments)
+        except ValidationError as e:
+            return ToolCallResult(success=False, output=str(e))
+
+        # conditionally request permission for tool
+        if tool.requires_permissions:
+            # if user previously granted permissions for the tool for the session
+            if self.granted_tool_permissions[tool]:
+                pass
+            else:
+                choice = self._request_permission_for_tool(tool=function_name, args=function_arguments)
+                if choice == PermissionChoice.NO:
+                    return ToolCallResult(
+                        success=False,
+                        output=f"User denied permission to use {function_name} tool. Try alternatives if possible."
+                    )
+
+                if choice == PermissionChoice.SESSION:
+                    self.granted_tool_permissions[tool] = True
+
+        return tool.call(validated_args, self.workspace)
+    
+    def _request_permission_for_tool(self, tool: str, args: str) -> PermissionChoice:
+        args_json = json.loads(args)
+        click.echo("code-assist wants to perform an action:")
+        click.echo(f"{tool}: {json.dumps(args_json, indent=2)}",)
+        choice = click.prompt(
+            "Allow? [y] once / [s] session / [n] deny",
+            type=click.Choice(["y", "s", "n"], case_sensitive=False),
+            default="n",
+            show_choices=False,
+        )
+
+        return PermissionChoice(choice.lower())

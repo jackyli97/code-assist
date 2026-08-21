@@ -126,7 +126,11 @@ def run_interactive(agent: LlmAgent) -> None:
                 click.echo("  /help   - Show this help menu")
                 click.echo("  /model  - Show the current model, or switch with /model <model-id>")
                 click.echo("  /status  - Show model, workspace, and token and context usage")
-                click.echo()
+                click.echo("\nSafety:")
+                click.echo(
+                    "Shell commands are not OS-sandboxed in v0.1.0. "
+                    "Review commands carefully before approving execution."
+                )
                 continue
 
             run_agent(agent=agent, prompt=prompt)

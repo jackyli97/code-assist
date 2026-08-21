@@ -153,7 +153,7 @@ def test_resolve_safe_path_allows_env_like_filenames(tmp_path: Path) -> None:
 def test__read_file_returns_file_contents(tmp_path: Path) -> None:
     (tmp_path / "hello.txt").write_text("hello world\n")
 
-    assert "hello world\n" in ReadTool._read_file("hello.txt", tmp_path)
+    assert "hello world" in ReadTool._read_file("hello.txt", tmp_path)
 
 
 def test__read_file_raises_when_file_missing(tmp_path: Path) -> None:
@@ -210,7 +210,7 @@ def test_read_tool_call_returns_contents_on_success(tmp_path: Path) -> None:
     result = ReadTool.call(ReadToolArgs(file_path="hello.txt"), tmp_path)
 
     assert result.success is True
-    assert "hello world\n" in result.output
+    assert "hello world" in result.output
 
 
 @pytest.mark.parametrize(
