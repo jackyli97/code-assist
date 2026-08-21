@@ -41,6 +41,23 @@ from tests.integration.support import (
 # Network isolation
 # ---------------------------------------------------------------------------
 
+
+@pytest.fixture(autouse=True)
+def no_live_http(mocker: MockerFixture) -> None:
+    """Fail loudly if anything in the integration suite reaches the network.
+
+    ``requests`` is a single shared module object, so this guard covers every
+    caller in the process, not just :func:`lookup_model` — the reported URL is
+    what tells the two apart. Third-party downloads that legitimately need the
+    network (``tiktoken``'s BPE files) are warmed in the session-scoped
+    ``warm_tiktoken_cache`` fixture, before this patch is installed.
+    """
+
+    def refuse(url: str, *_: Any, **__: Any) -> None:
+        raise AssertionError(f"integration tests must not make live HTTP calls: {url}")
+
+    mocker.patch("ai_coding_assistant.models.requests.get", side_effect=refuse)
+
 @pytest.fixture(autouse=True)
 def stub_model_lookup(mocker: MockerFixture) -> None:
     """Stub the model lookup at every import site that uses it."""
@@ -48,15 +65,6 @@ def stub_model_lookup(mocker: MockerFixture) -> None:
     for module in ("agents", "cli_runner", "config"):
         mocker.patch(f"ai_coding_assistant.{module}.lookup_model", return_value=lookup)
 
-@pytest.fixture(autouse=True)
-def no_live_http(mocker: MockerFixture) -> None:
-    """Fail loudly if anything in the integration suite reaches the network."""
-    mocker.patch(
-        "ai_coding_assistant.models.requests.get",
-        side_effect=AssertionError(
-            "integration tests must not make live HTTP calls to OpenRouter"
-        ),
-    )
 
 @pytest.fixture(autouse=True)
 def isolated_openrouter_env(monkeypatch: pytest.MonkeyPatch) -> None:

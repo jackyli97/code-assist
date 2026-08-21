@@ -22,7 +22,15 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked
 
+      - name: Cache tiktoken encodings
+        uses: actions/cache@v4
+        with:
+          path: .tiktoken-cache
+          key: tiktoken-${{ hashFiles('uv.lock') }}
+
       - name: Run tests
+        env:
+          TIKTOKEN_CACHE_DIR: .tiktoken-cache
         run: uv run pytest
 
       - name: Build package
