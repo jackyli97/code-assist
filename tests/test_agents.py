@@ -895,7 +895,9 @@ def test_execute_call_permissions_only_asked_if_required(
 
     mock_permissions_call = mocker.patch.object(
         agent, "_request_permission_for_tool",
-        return_value=True
+        return_value=PermissionChoice(
+            "y"
+        )
     )
 
     agent.execute_tool(tool_call)
