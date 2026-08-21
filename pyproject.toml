@@ -1,5 +1,5 @@
 [project]
-name = "ai-coding-assistant"
+name = "code-assist"
 version = "0.1.0"
 description = "Local AI Coding Assistant"
 readme = "README.md"

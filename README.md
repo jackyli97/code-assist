@@ -1,4 +1,4 @@
-# ai-coding-assistant
+# code-assist
 
 A local CLI coding agent that can explore a project, modify files, and run commands using LLMs through OpenRouter.
 
@@ -30,7 +30,7 @@ Clone the repository and install `code-assist` as a CLI:
 
 ```bash
 git clone <repo>
-cd ai-coding-assistant
+cd code-assist
 uv tool install .
 ```
 
@@ -271,7 +271,7 @@ uv tool install . --reinstall
 
 ## Current Limitations
 
-`ai-coding-assistant` is currently at `v0.1.0`.
+`code-assist` is currently at `v0.1.0`.
 
 Notable limitations include:
 
