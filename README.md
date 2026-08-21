@@ -6,32 +6,30 @@ A local CLI coding agent that can explore a project, modify files, and run comma
 
 ## Features
 
-* **Interactive coding sessions** — maintain conversation context across multiple prompts in a terminal REPL.
-* **Single-shot prompts** — run one-off coding tasks directly from the command line.
-* **Workspace-aware file access** — read and write tools are restricted to paths within the directory where `code-assist` is started.
-* **File reading** — inspect targeted sections of files with bounded line ranges.
-* **File writing** — create or overwrite files within the project workspace.
-* **Command execution** — run commands with a workspace-relative working directory.
-* **Permission controls** — file writes and shell commands require approval before execution, with the option to approve once or for the remainder of the session.
-* **Sensitive-path protection** — direct access to `.env`, `.env.*`, and `.ssh` paths is blocked.
-* **Configurable models** — use supported models available through OpenRouter and change models during an interactive session.
-* **Conversation management** — clear or compact conversation history as context usage grows.
-* **Token and context tracking** — inspect API token usage and estimated context-window utilization during interactive sessions.
+- **Interactive coding sessions** — maintain conversation context across multiple prompts in a terminal REPL.
+- **Single-shot prompts** — run one-off coding tasks directly from the command line.
+- **Workspace-aware file access** — read and write tools are restricted to paths within the directory where `code-assist` is started.
+- **File reading** — inspect targeted sections of files with bounded line ranges.
+- **File writing** — create or overwrite files within the project workspace.
+- **Command execution** — run commands with a workspace-relative working directory.
+- **Permission controls** — file writes and shell commands require approval before execution, with the option to approve once or for the remainder of the session.
+- **Sensitive-path protection** — direct access to `.env`, `.env.*`, and `.ssh` paths is blocked.
+- **Configurable models** — use supported models available through OpenRouter and change models during an interactive session.
+- **Conversation management** — clear or compact conversation history as context usage grows.
+- **Token and context tracking** — inspect API token usage and estimated context-window utilization during interactive sessions.
 
 ## Requirements
 
-* Python 3.13+
-* [uv](https://docs.astral.sh/uv/)
-* An [OpenRouter](https://openrouter.ai/) API key
+- Python 3.13+
+- [uv](https://docs.astral.sh/uv/)
+- An [OpenRouter](https://openrouter.ai/) API key
 
 ## Installation
 
-Clone the repository and install `code-assist` as a CLI:
+Install `code-assist` from PyPI with `uv`:
 
 ```bash
-git clone <repo>
-cd code-assist
-uv tool install .
+uv tool install code-assist-cli
 ```
 
 If `code-assist` isn't found afterwards, run:
@@ -42,7 +40,7 @@ uv tool update-shell
 
 Then restart your shell.
 
-Verify the installation with:
+Verify the installation:
 
 ```bash
 code-assist --version
@@ -116,8 +114,10 @@ Example:
 
 ```text
 code-assist v0.1.0
+
 Workspace: /path/to/project
 Model: anthropic/claude-haiku-4.5
+
 Type your request below, or '/help' for available commands.
 
 > explain how authentication works in this project
@@ -163,7 +163,7 @@ Code Assist distinguishes between read-only file inspection and actions that can
 
 File reads do not require approval. File writes and shell commands require explicit permission before they are executed.
 
-When approval is required, Code Assist prompts you with the proposed action:
+When approval is required, Code Assist displays the proposed action:
 
 ```text
 code-assist wants to perform an action:
@@ -181,9 +181,9 @@ Allow? [y] once / [s] session / [n] deny [n]:
 
 You can:
 
-* `y` — approve this action once
-* `s` — approve that tool for the remainder of the current session
-* `n` — deny the action
+- `y` — approve the action once
+- `s` — approve that tool for the remainder of the current session
+- `n` — deny the action
 
 Session permissions are kept in memory and reset when Code Assist exits.
 
@@ -223,7 +223,7 @@ Use:
 
 to inspect the current model, context limit, approximate context usage, workspace, and cumulative API token usage.
 
-When a conversation becomes large, you can use:
+When a conversation becomes large, use:
 
 ```text
 /compact
@@ -239,9 +239,11 @@ To discard conversation history entirely:
 
 ## Development
 
-Install development dependencies:
+Clone the repository and install the development dependencies:
 
 ```bash
+git clone <repo>
+cd ai-coding-assistant
 uv sync
 ```
 
@@ -257,13 +259,13 @@ or:
 uv run code-assist -p "..."
 ```
 
-Run the test suite with:
+Run the test suite:
 
 ```bash
 uv run pytest
 ```
 
-If you have already installed the CLI with `uv tool install .`, reinstall it to pick up local changes:
+To install your local development version as a CLI:
 
 ```bash
 uv tool install . --reinstall
@@ -275,12 +277,12 @@ uv tool install . --reinstall
 
 Notable limitations include:
 
-* Shell execution is not isolated in a container or OS-level sandbox.
-* Conversation history exists only for the lifetime of the interactive process.
-* Session-level permission grants are not persisted between sessions.
-* File writes replace the target file contents rather than applying structured patches.
-* Tool execution is limited to file reads, file writes, and command execution.
+- Shell execution is not isolated in a container or OS-level sandbox.
+- Conversation history exists only for the lifetime of the interactive process.
+- Session-level permission grants are not persisted between sessions.
+- File writes replace the target file contents rather than applying structured patches.
+- Tool execution is limited to file reads, file writes, and command execution.
 
 ## License
 
-Licensed under the MIT License. See `LICENSE` for details.
+Licensed under the MIT License. See [`LICENSE`](LICENSE) for details.
