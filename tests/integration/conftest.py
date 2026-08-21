@@ -41,6 +41,12 @@ from tests.integration.support import (
 # Network isolation
 # ---------------------------------------------------------------------------
 
+@pytest.fixture(autouse=True)
+def stub_model_lookup(mocker: MockerFixture) -> None:
+    """Stub the model lookup at every import site that uses it."""
+    lookup = ModelLookup(found=True, context_limit=DEFAULT_CONTEXT_LIMIT)
+    for module in ("agents", "cli_runner", "config"):
+        mocker.patch(f"ai_coding_assistant.{module}.lookup_model", return_value=lookup)
 
 @pytest.fixture(autouse=True)
 def no_live_http(mocker: MockerFixture) -> None:
@@ -51,25 +57,6 @@ def no_live_http(mocker: MockerFixture) -> None:
             "integration tests must not make live HTTP calls to OpenRouter"
         ),
     )
-
-@pytest.fixture(autouse=True)
-def fake_model_lookup(mocker: MockerFixture) -> None:
-    mocker.patch(
-        "ai_coding_assistant.cli_runner.lookup_model",
-        return_value=ModelLookup(
-            found=True,
-            context_limit=200_000,
-        ),
-    )
-
-
-@pytest.fixture(autouse=True)
-def stub_model_lookup(mocker: MockerFixture) -> None:
-    """Stub the model lookup at every import site that uses it."""
-    lookup = ModelLookup(found=True, context_limit=DEFAULT_CONTEXT_LIMIT)
-    for module in ("agents", "cli_runner", "config"):
-        mocker.patch(f"ai_coding_assistant.{module}.lookup_model", return_value=lookup)
-
 
 @pytest.fixture(autouse=True)
 def isolated_openrouter_env(monkeypatch: pytest.MonkeyPatch) -> None:
