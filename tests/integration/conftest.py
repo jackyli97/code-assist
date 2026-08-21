@@ -52,6 +52,16 @@ def no_live_http(mocker: MockerFixture) -> None:
         ),
     )
 
+@pytest.fixture(autouse=True)
+def fake_model_lookup(mocker: MockerFixture) -> None:
+    mocker.patch(
+        "ai_coding_assistant.models.lookup_model",
+        return_value=ModelLookup(
+            found=True,
+            context_limit=200_000,
+        ),
+    )
+
 
 @pytest.fixture(autouse=True)
 def stub_model_lookup(mocker: MockerFixture) -> None:
