@@ -28,7 +28,7 @@ def run_agent(agent: LlmAgent, prompt: str) -> None:
         if utilization > 80:
             click.echo(
                 click.style(
-                    f"Warning: context is ~{utilization:.0%} full.\n"
+                    f"Warning: context is ~{utilization}% full.\n"
                     "Use /clear to start fresh, /compact to compact history, or /model to switch models.\n"
                     "Use /status to view context usage and limit",
                     fg="yellow",
