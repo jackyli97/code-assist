@@ -1,4 +1,4 @@
-from ai_coding_assistant.agents import LlmAgent, AgentResponse  # noqa: F401
+from ai_coding_assistant.agents import LlmAgent, AgentResponse, PermissionChoice  # noqa: F401
 
 import json
 import pytest
@@ -24,6 +24,33 @@ def stub_context_limit(mocker: MockerFixture) -> None:
             found=True,
             context_limit=200_000
         ),
+    )
+
+@pytest.fixture
+def stub_permission_request_returns_yes(mocker: MockerFixture) -> None:
+    mocker.patch.object(
+        LlmAgent, "_request_permission_for_tool",
+        return_value=PermissionChoice(
+            "y"
+        )
+    )
+
+@pytest.fixture
+def stub_permission_request_returns_no(mocker: MockerFixture) -> None:
+    mocker.patch.object(
+        LlmAgent, "_request_permission_for_tool",
+        return_value=PermissionChoice(
+            "n"
+        )
+    )
+
+@pytest.fixture
+def stub_permission_request_returns_session(mocker: MockerFixture) -> None:
+    mocker.patch.object(
+        LlmAgent, "_request_permission_for_tool",
+        return_value=PermissionChoice(
+            "s"
+        )
     )
 
 def create_mock_completion(id_str: str, message: ChatCompletionMessage) -> ChatCompletion:
@@ -284,7 +311,8 @@ def test_execute_call_success(
     tool_call_fixture_name: str, 
     tmp_path: Path, 
     mocker: MockerFixture,
-    request: pytest.FixtureRequest
+    request: pytest.FixtureRequest,
+    stub_permission_request_returns_yes: None,
 ):
     tool_call: ChatCompletionMessageToolCall = request.getfixturevalue(tool_call_fixture_name)
     function_name = tool_call.function.name
@@ -301,7 +329,7 @@ def test_execute_call_success(
     result = agent.execute_tool(tool_call)
     assert result.success
 
-def test_execute_call_fails_invalid_tool(tmp_path: Path):
+def test_execute_call_fails_invalid_tool(tmp_path: Path,  stub_permission_request_returns_yes: None):
     invalid_tool_call: ChatCompletionMessageToolCall = ChatCompletionMessageToolCall(
         id="call_read_0",
         type="function",
@@ -318,7 +346,8 @@ def test_execute_call_fails_invalid_tool(tmp_path: Path):
 
 def test_execute_call_fails_model_validate_json(
     mock_read_tool_call: ChatCompletionMessageToolCall,
-    tmp_path: Path
+    tmp_path: Path,
+    stub_permission_request_returns_yes: None,
 ):
     client = MagicMock()
     
@@ -762,3 +791,188 @@ def test_compact_adds_llm_tokens_to_session_totals(
     # also surfaced on the result for callers to display
     assert result.run_prompt_tokens == 100
     assert result.run_completion_tokens == 50
+
+@pytest.mark.parametrize(
+    "tool_call_fixture_name",
+    [
+        "mock_read_tool_call",
+        "mock_write_tool_call",
+        "mock_bash_tool_call"
+    ],
+)
+def test_execute_call_with_rejected_permissions(
+    tool_call_fixture_name: str, 
+    tmp_path: Path, 
+    mocker: MockerFixture,
+    request: pytest.FixtureRequest,
+    stub_permission_request_returns_no: None,
+):
+    tool_call: ChatCompletionMessageToolCall = request.getfixturevalue(tool_call_fixture_name)
+    function_name = tool_call.function.name
+    tool = TOOL_REGISTRY[function_name]
+    client = MagicMock()
+
+    mock_tool_call = mocker.patch.object(tool, "call", return_value=ToolCallResult(
+        success=True,
+        output="stubbed"
+    ))
+
+    agent = LlmAgent(client=client, workspace=tmp_path, tools=[MagicMock()]*3)
+
+    result = agent.execute_tool(tool_call)
+
+    if tool.requires_permissions:
+        assert not result.success
+        assert mock_tool_call.call_count == 0
+    else:
+        assert result.success
+        assert mock_tool_call.call_count == 1
+
+    # ensure permission not granted for session
+    assert not agent.granted_tool_permissions[tool]
+
+@pytest.mark.parametrize(
+    "tool_call_fixture_name",
+    [
+        "mock_read_tool_call",
+        "mock_write_tool_call",
+        "mock_bash_tool_call"
+    ],
+)
+def test_execute_call_with_granted_permissions(
+    tool_call_fixture_name: str, 
+    tmp_path: Path, 
+    mocker: MockerFixture,
+    request: pytest.FixtureRequest,
+    stub_permission_request_returns_yes: None,
+):
+    tool_call: ChatCompletionMessageToolCall = request.getfixturevalue(tool_call_fixture_name)
+    function_name = tool_call.function.name
+    tool = TOOL_REGISTRY[function_name]
+    client = MagicMock()
+
+    mock_tool_call = mocker.patch.object(tool, "call", return_value=ToolCallResult(
+        success=True,
+        output="stubbed"
+    ))
+
+    agent = LlmAgent(client=client, workspace=tmp_path, tools=[MagicMock()]*3)
+
+    result = agent.execute_tool(tool_call)
+
+    assert result.success
+    assert mock_tool_call.call_count == 1
+
+    # ensure permission not granted for session
+    assert not agent.granted_tool_permissions[tool]
+
+@pytest.mark.parametrize(
+    "tool_call_fixture_name",
+    [
+        "mock_read_tool_call",
+        "mock_write_tool_call",
+        "mock_bash_tool_call"
+    ],
+)
+def test_execute_call_permissions_only_asked_if_required(
+    tool_call_fixture_name: str, 
+    tmp_path: Path, 
+    mocker: MockerFixture,
+    request: pytest.FixtureRequest,
+):
+    tool_call: ChatCompletionMessageToolCall = request.getfixturevalue(tool_call_fixture_name)
+    function_name = tool_call.function.name
+    tool = TOOL_REGISTRY[function_name]
+    client = MagicMock()
+
+    mocker.patch.object(tool, "call", return_value=ToolCallResult(
+        success=True,
+        output="stubbed"
+    ))
+
+
+    agent = LlmAgent(client=client, workspace=tmp_path, tools=[MagicMock()]*3)
+
+    mock_permissions_call = mocker.patch.object(
+        agent, "_request_permission_for_tool",
+        return_value=True
+    )
+
+    agent.execute_tool(tool_call)
+
+    if tool.requires_permissions:
+        assert mock_permissions_call.called
+    else:
+        assert not mock_permissions_call.called
+
+
+@pytest.mark.parametrize(
+    "tool_call_fixture_name",
+    [
+        "mock_read_tool_call",
+        "mock_write_tool_call",
+        "mock_bash_tool_call"
+    ],
+)
+def test_execute_call_with_granted_permissions_for_session(
+    tool_call_fixture_name: str, 
+    tmp_path: Path, 
+    mocker: MockerFixture,
+    request: pytest.FixtureRequest,
+    stub_permission_request_returns_session: None,
+):
+    tool_call: ChatCompletionMessageToolCall = request.getfixturevalue(tool_call_fixture_name)
+    function_name = tool_call.function.name
+    tool = TOOL_REGISTRY[function_name]
+    client = MagicMock()
+
+    mocker.patch.object(tool, "call", return_value=ToolCallResult(
+        success=True,
+        output="stubbed"
+    ))
+
+    agent = LlmAgent(client=client, workspace=tmp_path, tools=[MagicMock()]*3)
+
+    result = agent.execute_tool(tool_call)
+
+    assert result.success
+
+    if tool.requires_permissions:
+        assert agent.granted_tool_permissions[tool]
+
+def test_execute_call_doesnt_ask_for_permission_after_granted_for_session(
+    mock_bash_tool_call: ChatCompletionMessageToolCall,
+    tmp_path: Path, 
+    mocker: MockerFixture,
+    request: pytest.FixtureRequest,
+):
+    function_name = mock_bash_tool_call.function.name
+    tool = TOOL_REGISTRY[function_name]
+    client = MagicMock()
+
+    mocker.patch.object(tool, "call", return_value=ToolCallResult(
+        success=True,
+        output="stubbed"
+    ))
+
+    agent = LlmAgent(client=client, workspace=tmp_path, tools=[MagicMock()]*3)
+
+    mock_permissions_call = mocker.patch.object(
+        agent, "_request_permission_for_tool",
+        return_value=PermissionChoice(
+            "s"
+        )
+    )
+
+    result = agent.execute_tool(mock_bash_tool_call)
+
+    assert result.success
+    assert mock_permissions_call.call_count == 1
+    assert agent.granted_tool_permissions[tool]
+
+    # call tool again and ensure we don't ask for permissions again
+    
+    result = agent.execute_tool(mock_bash_tool_call)
+
+    assert result.success
+    assert mock_permissions_call.call_count == 1

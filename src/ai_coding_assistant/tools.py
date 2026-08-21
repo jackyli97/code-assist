@@ -21,6 +21,7 @@ class BaseTool(ABC):
     name: str
     args_model: Type[BaseModel]
     description: str
+    requires_permissions: bool
 
     @staticmethod
     @abstractmethod
@@ -32,7 +33,11 @@ class BaseTool(ABC):
 # ---------------------------------------------------------------------------
 # Tool Argument Models
 # ---------------------------------------------------------------------------
-class ReadToolArgs(BaseModel):
+
+class ToolArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+class ReadToolArgs(ToolArgs):
     model_config = ConfigDict(extra="forbid")
     file_path: str = Field(description=(
         "The path to the file to read, relative to the project workspace root. "
@@ -56,7 +61,7 @@ class ReadToolArgs(BaseModel):
         "Maximum allowed value is 500."
     ))
 
-class WriteToolArgs(BaseModel):
+class WriteToolArgs(ToolArgs):
     model_config = ConfigDict(extra="forbid")
     file_path: str = Field(description=(
         "The path of the file to write to, relative to the project workspace root. "
@@ -66,7 +71,7 @@ class WriteToolArgs(BaseModel):
 )
     content: str = Field(description="The content to write to the file")
 
-class BashToolArgs(BaseModel):
+class BashToolArgs(ToolArgs):
     model_config = ConfigDict(extra="forbid")
     command: list[str] = Field(
     description=(
@@ -91,6 +96,7 @@ class ReadTool(BaseTool):
     name = "Read"
     args_model = ReadToolArgs
     description = "Read and return the contents of a file"
+    requires_permissions = False
 
     @staticmethod
     def call(args: ReadToolArgs, workspace: Path) -> ToolCallResult:
@@ -142,6 +148,8 @@ class WriteTool(BaseTool):
     name="Write"
     args_model = WriteToolArgs
     description = "Write content to a file"
+    requires_permissions = True
+
 
     @staticmethod
     def call(args: WriteToolArgs, workspace: Path) -> ToolCallResult:
@@ -175,6 +183,8 @@ class BashTool(BaseTool):
     name="Bash"
     args_model=BashToolArgs
     description="Execute a shell command"
+    requires_permissions = True
+
 
     @staticmethod
     def call(args: BashToolArgs, workspace: Path) -> ToolCallResult:
