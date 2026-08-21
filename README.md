@@ -2,7 +2,9 @@
 
 A local CLI coding agent that can explore a project, modify files, and run commands using LLMs through OpenRouter.
 
-`code-assist` operates from your project directory and supports both one-shot prompts and persistent interactive sessions.
+`code-assist` operates from your project directory and supports both one-shot prompts and persistent interactive sessions
+
+<img width="1188" height="1404" alt="Adobe Express - code-assist-demo" src="https://github.com/user-attachments/assets/893c2a99-e03f-417c-b4c4-a8323affcfa6" />
 
 ## Features
 
